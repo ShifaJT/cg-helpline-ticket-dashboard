@@ -283,6 +283,58 @@ def parse_resolution_hours(series):
     return result.clip(lower=0)
 
 
+def parse_duration_hours(series):
+    """Parse raw duration values such as H:MM:SS or numeric hours."""
+    result = pd.Series(np.nan, index=series.index, dtype="float64")
+    import datetime as _dt
+
+    for row_idx, value in series.items():
+        if pd.isna(value):
+            continue
+        if isinstance(value, pd.Timedelta):
+            result.loc[row_idx] = value.total_seconds() / 3600
+            continue
+        if isinstance(value, _dt.timedelta):
+            result.loc[row_idx] = value.total_seconds() / 3600
+            continue
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            n = float(value)
+            if n >= 0:
+                result.loc[row_idx] = n * 24 if n <= 1 else n
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        try:
+            td = pd.to_timedelta(text, errors="coerce")
+            if not pd.isna(td):
+                result.loc[row_idx] = td.total_seconds() / 3600
+                continue
+        except Exception:
+            pass
+        try:
+            n = float(text)
+            if n >= 0:
+                result.loc[row_idx] = n * 24 if n <= 1 else n
+        except Exception:
+            pass
+
+    return result.clip(lower=0)
+
+
+def get_first_response_hours(data):
+    """Find and parse the raw first-response duration column."""
+    for col in [
+        "First response time (in hrs)",
+        "First response time",
+        "First response"
+    ]:
+        if col in data.columns:
+            values = parse_duration_hours(data[col])
+            return values[values.notna() & (values >= 0)]
+    return pd.Series(dtype="float64")
+
+
 def parse_datetime_series(series):
     """
     Robust datetime parser.
@@ -786,6 +838,8 @@ def get_stats(data):
             "p95_rank": 0,
             "p99_rank": 0,
             "old_open": 0,
+            "first_response_avg": 0.0,
+            "first_response_count": 0,
         }
 
     closed = data[data["Status Clean"].eq("CLOSED")]
@@ -826,6 +880,13 @@ def get_stats(data):
 
     old_open = opened[opened["Open Age Hours"] > 72]
 
+    first_response = get_first_response_hours(data)
+    first_response_avg = (
+        float(first_response.mean())
+        if not first_response.empty
+        else 0.0
+    )
+
     return {
         "raised": len(data),
         "closed": len(closed),
@@ -846,6 +907,8 @@ def get_stats(data):
         "p95_rank": p95_rank,
         "p99_rank": p99_rank,
         "old_open": len(old_open),
+        "first_response_avg": first_response_avg,
+        "first_response_count": len(first_response),
     }
 
 
@@ -1448,8 +1511,9 @@ def make_email_summary(
         ("Closed within 24h", f"{s['within']:,}", "Met 24-hour SLA"),
         ("Closed >24h", f"{s['after']:,}", "Exceeded 24-hour SLA"),
         ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
-        ("Average resolution", f"{s['avg']:.2f} hrs", "Average closure time"),
-        ("Median resolution", f"{s['median']:.2f} hrs", "Middle resolution time"),
+        ("Average resolution", format_hms(s["avg"]), "Average closure time"),
+        ("Median resolution", format_hms(s["median"]), "Middle resolution time"),
+        ("Average first response", format_hms(s["first_response_avg"]), "Average raw first-response time"),
         ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "Actual ticket at the 90% ranked position"),
         ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "Actual ticket at the 95% ranked position"),
         ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "Actual ticket at the 99% ranked position"),
@@ -1479,6 +1543,42 @@ def make_email_summary(
         else "No issue-type contribution could be identified."
     )
 
+    # Top contributing L1/L2 issues.
+    l1_summary = summary_by_group(data, "Issue L1")
+    l2_summary = summary_by_group(data, "Issue L2")
+
+    top_l1_lines = [
+        f"- {row['Issue L1']}: {int(row['Raised']):,} tickets "
+        f"({(int(row['Raised']) / s['raised'] * 100) if s['raised'] else 0:.1f}%)"
+        for _, row in l1_summary.head(5).iterrows()
+    ] or ["- No L1 issue data available."]
+
+    top_l2_lines = [
+        f"- {row['Issue L2']}: {int(row['Raised']):,} tickets "
+        f"({(int(row['Raised']) / s['raised'] * 100) if s['raised'] else 0:.1f}%)"
+        for _, row in l2_summary.head(5).iterrows()
+    ] or ["- No L2 issue data available."]
+
+    # Current tickets outside CG Helpline, based only on raw Group.
+    group_col = "Group Analysis" if "Group Analysis" in data.columns else "Group"
+    if group_col in data.columns:
+        transferred = data[
+            data[group_col].fillna("").astype(str).str.strip().ne("")
+            & ~data[group_col].fillna("").astype(str).str.strip().str.casefold().eq("cg helpline")
+        ]
+        transfer_counts = (
+            transferred.groupby(group_col)["Ticket ID"]
+            .nunique()
+            .sort_values(ascending=False)
+            if not transferred.empty else pd.Series(dtype="int64")
+        )
+        transfer_lines = [
+            f"- {grp}: {int(count):,} tickets"
+            for grp, count in transfer_counts.head(10).items()
+        ] or ["- No tickets currently in other groups."]
+    else:
+        transfer_lines = ["- Group column not available in the raw data."]
+
     email = f"""Subject: CG Helpline Ticket Performance Update – {scope}
 
 Hi Team,
@@ -1500,13 +1600,29 @@ MANAGEMENT OBSERVATIONS
 2. Closure and SLA performance
 {sla_text}
 
-3. Resolution-time distribution
+3. First response time
+The average first response time was {format_hms(s['first_response_avg'])}, based on {s['first_response_count']:,} tickets with a valid first-response value.
+
+4. Highest-contributing issues
+
+L1 — Top 5:
+{chr(10).join(top_l1_lines)}
+
+L2 — Top 5:
+{chr(10).join(top_l2_lines)}
+
+5. Transferred / other-group tickets
+
+Tickets currently outside the CG Helpline queue, based only on the raw Group field:
+{chr(10).join(transfer_lines)}
+
+6. Resolution-time distribution
 {resolution_text}
 
-4. Backlog
+7. Backlog
 {backlog_text}
 
-5. Reporting period
+8. Reporting period
 {date_text}
 
 RECOMMENDED FOCUS
@@ -1936,6 +2052,11 @@ def build_excel_report(
             "Total closed CG Helpline tickets in the selected scope"
         ),
         (
+            "Average First Response Time",
+            format_hms(s["first_response_avg"]),
+            "Average RAW first response time"
+        ),
+        (
             "Average Closure Time",
             format_hms(s["avg"]),
             "Average of RAW Resolution time (in hrs) for valid closed tickets"
@@ -2092,6 +2213,19 @@ def build_excel_report(
         filtered_export["Calculated SLA"] = (
             filtered_data["SLA"]
         )
+
+    for first_col in [
+        "First response time (in hrs)",
+        "First response time",
+        "First response"
+    ]:
+        if first_col in filtered_data.columns:
+            filtered_export["First Response Time Used for Dashboard"] = (
+                parse_duration_hours(
+                    filtered_data[first_col]
+                ).apply(format_hms)
+            )
+            break
 
     if "Open Age Hours" in filtered_data.columns:
         filtered_export["Calculated Open Age"] = (
@@ -3111,6 +3245,25 @@ st.caption(
     "90%/95%/99% of valid closed tickets were resolved."
 )
 
+
+
+r4 = st.columns(4)
+
+with r4[0]:
+    show_kpi(
+        "AVG FIRST RESPONSE HRS",
+        format_hms(s["first_response_avg"]),
+        "blue"
+    )
+
+with r4[1]:
+    show_kpi(
+        "FIRST RESPONSE TICKETS",
+        f"{s['first_response_count']:,}",
+        "green"
+    )
+
+st.write("")
 
 
 # ============================================================
