@@ -674,21 +674,54 @@ def format_hms(hours):
 
 
 
-def excel_percentile(series, percentile):
-    """Excel PERCENTILE.INC-style percentile using linear interpolation."""
-    values = pd.to_numeric(series, errors="coerce").dropna()
-    values = values[values >= 0]
+def actual_percentile_ticket_time(series, percentage):
+    """
+    User-defined percentile logic.
 
-    if values.empty:
-        return 0.0
+    Sort valid closed-ticket resolution times from LOWEST to HIGHEST,
+    calculate the percentage position, and return the ACTUAL ticket
+    at that position.
 
-    return float(
-        np.percentile(
-            values.to_numpy(dtype=float),
-            percentile * 100,
-            method="linear"
-        )
+    Example with 10 tickets:
+        90% -> 9th ticket
+        95% -> 9th ticket
+        99% -> 9th ticket
+
+    No interpolation and no averaging.
+    """
+
+    values = (
+        pd.to_numeric(series, errors="coerce")
+        .dropna()
     )
+
+    values = values[
+        values >= 0
+    ].sort_values(
+        ascending=True
+    ).reset_index(drop=True)
+
+    total = len(values)
+
+    if total == 0:
+        return 0.0, 0
+
+    # User's rule:
+    # position = floor(total tickets × percentage)
+    position = int(
+        np.floor(total * percentage)
+    )
+
+    position = max(
+        1,
+        min(position, total)
+    )
+
+    actual_time = float(
+        values.iloc[position - 1]
+    )
+
+    return actual_time, position
 
 
 def get_stats(data):
@@ -712,33 +745,55 @@ def get_stats(data):
             "old_open": 0,
         }
 
-    closed = data[data["Status Clean"].eq("CLOSED")]
-    opened = data[data["Status Clean"].eq("OPEN")]
+    closed = data[
+        data["Status Clean"].eq("CLOSED")
+    ]
+
+    opened = data[
+        data["Status Clean"].eq("OPEN")
+    ]
 
     valid = closed[
         closed["Closure Hours"].notna()
-        & (closed["Closure Hours"] >= 0)
+        &
+        (closed["Closure Hours"] >= 0)
     ].copy()
 
-    within = valid[valid["Closure Hours"] <= 24]
-    after = valid[valid["Closure Hours"] > 24]
+    within = valid[
+        valid["Closure Hours"] <= 24
+    ]
+
+    after = valid[
+        valid["Closure Hours"] > 24
+    ]
 
     if not valid.empty:
 
-        avg_hours = float(valid["Closure Hours"].mean())
-        median_hours = float(valid["Closure Hours"].median())
+        avg_hours = float(
+            valid["Closure Hours"].mean()
+        )
 
-        # Match Excel's PERCENTILE.INC methodology.
-        p90_hours = excel_percentile(valid["Closure Hours"], 0.90)
-        p95_hours = excel_percentile(valid["Closure Hours"], 0.95)
-        p99_hours = excel_percentile(valid["Closure Hours"], 0.99)
+        median_hours = float(
+            valid["Closure Hours"].median()
+        )
 
-        n = len(valid)
-        p90_rank = int(np.ceil(n * 0.90))
-        p95_rank = int(np.ceil(n * 0.95))
-        p99_rank = int(np.ceil(n * 0.99))
+        p90_hours, p90_rank = actual_percentile_ticket_time(
+            valid["Closure Hours"],
+            0.90
+        )
+
+        p95_hours, p95_rank = actual_percentile_ticket_time(
+            valid["Closure Hours"],
+            0.95
+        )
+
+        p99_hours, p99_rank = actual_percentile_ticket_time(
+            valid["Closure Hours"],
+            0.99
+        )
 
     else:
+
         avg_hours = 0.0
         median_hours = 0.0
         p90_hours = 0.0
@@ -748,7 +803,9 @@ def get_stats(data):
         p95_rank = 0
         p99_rank = 0
 
-    old_open = opened[opened["Open Age Hours"] > 72]
+    old_open = opened[
+        opened["Open Age Hours"] > 72
+    ]
 
     return {
         "raised": len(data),
