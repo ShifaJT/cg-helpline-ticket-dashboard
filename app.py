@@ -1,7 +1,11 @@
-
+import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # ============================================================
 # CG HELPLINE - TICKET INFLOW & RESOLUTION DASHBOARD
@@ -795,6 +799,679 @@ CG Helpline
     return email
 
 
+
+# ============================================================
+# EXCEL EXPORT
+# ============================================================
+
+def build_excel_report(
+    raw_data,
+    filtered_data,
+    issue_summary,
+    month_summary,
+    week_summary,
+    day_summary,
+    email_text,
+    filter_text
+):
+    """
+    Creates a professional Excel report containing:
+    1. Dashboard
+    2. Raw Data - unchanged raw columns/values
+    3. Filtered Raw Data
+    4. Issue Type Analysis
+    5. Monthly Analysis
+    6. Weekly Analysis
+    7. Daily Analysis
+    8. Email Findings
+
+    The raw-data sheet keeps the original raw export columns.
+    Calculated helper columns are kept out of Raw Data.
+    """
+
+    output = io.BytesIO()
+
+    wb = Workbook()
+
+    # --------------------------------------------------------
+    # Theme
+    # --------------------------------------------------------
+
+    navy = "17324D"
+    blue = "2F75B5"
+    green = "70AD47"
+    red = "C00000"
+    orange = "ED7D31"
+    light_blue = "D9EAF7"
+    light_green = "E2F0D9"
+    light_red = "FCE4D6"
+    light_orange = "FCE4D6"
+    white = "FFFFFF"
+    grey = "F2F4F7"
+    dark_grey = "667085"
+
+    thin_grey = Side(
+        style="thin",
+        color="D9E1E8"
+    )
+
+    # --------------------------------------------------------
+    # Remove default sheet
+    # --------------------------------------------------------
+
+    ws = wb.active
+    ws.title = "Dashboard"
+
+    # --------------------------------------------------------
+    # Helper functions
+    # --------------------------------------------------------
+
+    def style_title(sheet, title, subtitle=None, end_col=8):
+        sheet.merge_cells(
+            start_row=1,
+            start_column=1,
+            end_row=1,
+            end_column=end_col
+        )
+
+        cell = sheet.cell(1, 1)
+        cell.value = title
+        cell.fill = PatternFill(
+            "solid",
+            fgColor=navy
+        )
+        cell.font = Font(
+            color=white,
+            bold=True,
+            size=18
+        )
+        cell.alignment = Alignment(
+            vertical="center"
+        )
+
+        sheet.row_dimensions[1].height = 30
+
+        if subtitle:
+            sheet.merge_cells(
+                start_row=2,
+                start_column=1,
+                end_row=2,
+                end_column=end_col
+            )
+
+            sub = sheet.cell(2, 1)
+            sub.value = subtitle
+            sub.font = Font(
+                color=dark_grey,
+                italic=True,
+                size=10
+            )
+
+    def style_header_row(sheet, row, start_col, end_col):
+        for col in range(start_col, end_col + 1):
+            cell = sheet.cell(row, col)
+            cell.fill = PatternFill(
+                "solid",
+                fgColor=navy
+            )
+            cell.font = Font(
+                color=white,
+                bold=True
+            )
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center"
+            )
+            cell.border = Border(
+                bottom=thin_grey
+            )
+
+    def add_dataframe(sheet, dataframe, start_row=1, start_col=1):
+        """
+        Write dataframe with headers and return end row/end col.
+        """
+        data = dataframe.copy()
+
+        # Convert timestamps to Excel-friendly values
+        for col in data.columns:
+            if pd.api.types.is_datetime64_any_dtype(data[col]):
+                data[col] = data[col].dt.to_pydatetime()
+
+        for j, col in enumerate(data.columns, start_col):
+            sheet.cell(
+                start_row,
+                j,
+                str(col)
+            )
+
+        style_header_row(
+            sheet,
+            start_row,
+            start_col,
+            start_col + len(data.columns) - 1
+        )
+
+        for i, row in enumerate(
+            data.itertuples(index=False, name=None),
+            start_row + 1
+        ):
+            for j, value in enumerate(
+                row,
+                start_col
+            ):
+                if pd.isna(value):
+                    value = ""
+                sheet.cell(
+                    i,
+                    j,
+                    value
+                )
+
+        end_row = start_row + len(data)
+        end_col = start_col + len(data.columns) - 1
+
+        return end_row, end_col
+
+    def format_table(sheet, start_row, end_row, start_col, end_col, name):
+        if end_row < start_row + 1:
+            return
+
+        ref = (
+            f"{get_column_letter(start_col)}{start_row}:"
+            f"{get_column_letter(end_col)}{end_row}"
+        )
+
+        table = Table(
+            displayName=name,
+            ref=ref
+        )
+
+        style = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False
+        )
+
+        table.tableStyleInfo = style
+        sheet.add_table(table)
+
+    def auto_width(sheet, max_width=32):
+        for column_cells in sheet.columns:
+            try:
+                letter = get_column_letter(
+                    column_cells[0].column
+                )
+            except Exception:
+                continue
+
+            max_len = 0
+
+            for cell in column_cells:
+                try:
+                    value = str(cell.value)
+                    max_len = max(
+                        max_len,
+                        len(value)
+                    )
+                except Exception:
+                    pass
+
+            sheet.column_dimensions[
+                letter
+            ].width = min(
+                max(max_len + 2, 10),
+                max_width
+            )
+
+    # --------------------------------------------------------
+    # DASHBOARD SHEET
+    # --------------------------------------------------------
+
+    s = get_stats(filtered_data)
+
+    style_title(
+        ws,
+        "CG HELPLINE — TICKET INFLOW & RESOLUTION REPORT",
+        f"Scope: {filter_text}",
+        end_col=8
+    )
+
+    # KPI labels
+    kpis = [
+        ("Tickets Raised", s["raised"], blue),
+        ("Closed", s["closed"], green),
+        ("Open", s["open"], red),
+        ("Closed ≤24h", s["within"], green),
+        ("Closed >24h", s["after"], orange),
+        ("24h Closure %", f"{s['rate'] * 100:.1f}%", green),
+        ("Avg Closure Hrs", f"{s['avg']:.2f}", blue),
+        ("Open >72h", s["old_open"], red),
+    ]
+
+    positions = [
+        (4, 1),
+        (4, 3),
+        (4, 5),
+        (4, 7),
+        (7, 1),
+        (7, 3),
+        (7, 5),
+        (7, 7),
+    ]
+
+    for (label, value, colour), (row, col) in zip(
+        kpis,
+        positions
+    ):
+        ws.merge_cells(
+            start_row=row,
+            start_column=col,
+            end_row=row,
+            end_column=col + 1
+        )
+        ws.merge_cells(
+            start_row=row + 1,
+            start_column=col,
+            end_row=row + 1,
+            end_column=col + 1
+        )
+
+        label_cell = ws.cell(row, col)
+        label_cell.value = label
+        label_cell.fill = PatternFill(
+            "solid",
+            fgColor=colour
+        )
+        label_cell.font = Font(
+            color=white,
+            bold=True
+        )
+        label_cell.alignment = Alignment(
+            horizontal="center"
+        )
+
+        value_cell = ws.cell(row + 1, col)
+        value_cell.value = value
+        value_cell.fill = PatternFill(
+            "solid",
+            fgColor=colour
+        )
+        value_cell.font = Font(
+            color=white,
+            bold=True,
+            size=18
+        )
+        value_cell.alignment = Alignment(
+            horizontal="center"
+        )
+
+    # Email findings on Dashboard
+    ws["A10"] = "IMPORTANT FINDINGS / EMAIL READY"
+    ws["A10"].fill = PatternFill(
+        "solid",
+        fgColor=navy
+    )
+    ws["A10"].font = Font(
+        color=white,
+        bold=True,
+        size=12
+    )
+
+    ws.merge_cells(
+        "A11:H23"
+    )
+
+    email_cell = ws["A11"]
+    email_cell.value = email_text
+    email_cell.alignment = Alignment(
+        wrap_text=True,
+        vertical="top"
+    )
+    email_cell.fill = PatternFill(
+        "solid",
+        fgColor="FFFFFF"
+    )
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 15
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 15
+    ws.column_dimensions["E"].width = 18
+    ws.column_dimensions["F"].width = 15
+    ws.column_dimensions["G"].width = 18
+    ws.column_dimensions["H"].width = 15
+
+    # --------------------------------------------------------
+    # RAW DATA
+    # --------------------------------------------------------
+
+    raw_ws = wb.create_sheet("Raw Data")
+
+    # Keep original raw columns only.
+    raw_export = raw_data.copy()
+
+    # Remove internal calculated columns if present.
+    internal_columns = [
+        "Status Clean",
+        "Issue L1",
+        "Created Date",
+        "Month",
+        "Week Start",
+        "Week End",
+        "Week",
+        "Day",
+        "Closure Hours",
+        "SLA",
+        "Open Age Hours",
+    ]
+
+    raw_export = raw_export.drop(
+        columns=[
+            c for c in internal_columns
+            if c in raw_export.columns
+        ],
+        errors="ignore"
+    )
+
+    raw_end_row, raw_end_col = add_dataframe(
+        raw_ws,
+        raw_export,
+        start_row=1
+    )
+
+    format_table(
+        raw_ws,
+        1,
+        raw_end_row,
+        1,
+        raw_end_col,
+        "RawDataTable"
+    )
+
+    raw_ws.freeze_panes = "A2"
+    raw_ws.auto_filter.ref = (
+        f"A1:{get_column_letter(raw_end_col)}{raw_end_row}"
+    )
+
+    auto_width(
+        raw_ws,
+        max_width=35
+    )
+
+    # --------------------------------------------------------
+    # FILTERED RAW DATA
+    # --------------------------------------------------------
+
+    filtered_ws = wb.create_sheet(
+        "Filtered Raw Data"
+    )
+
+    filtered_export = filtered_data.drop(
+        columns=[
+            c for c in internal_columns
+            if c in filtered_data.columns
+        ],
+        errors="ignore"
+    )
+
+    end_row, end_col = add_dataframe(
+        filtered_ws,
+        filtered_export,
+        1
+    )
+
+    format_table(
+        filtered_ws,
+        1,
+        end_row,
+        1,
+        end_col,
+        "FilteredRawTable"
+    )
+
+    filtered_ws.freeze_panes = "A2"
+
+    auto_width(
+        filtered_ws,
+        max_width=35
+    )
+
+    # --------------------------------------------------------
+    # ISSUE ANALYSIS
+    # --------------------------------------------------------
+
+    issue_ws = wb.create_sheet(
+        "Issue Analysis"
+    )
+
+    style_title(
+        issue_ws,
+        "ISSUE TYPE-WISE ANALYSIS",
+        filter_text,
+        end_col=7
+    )
+
+    issue_end_row, issue_end_col = add_dataframe(
+        issue_ws,
+        issue_summary,
+        start_row=4
+    )
+
+    format_table(
+        issue_ws,
+        4,
+        issue_end_row,
+        1,
+        issue_end_col,
+        "IssueAnalysisTable"
+    )
+
+    auto_width(
+        issue_ws,
+        max_width=32
+    )
+
+    # --------------------------------------------------------
+    # MONTHLY
+    # --------------------------------------------------------
+
+    month_ws = wb.create_sheet(
+        "Monthly Analysis"
+    )
+
+    style_title(
+        month_ws,
+        "MONTH-WISE ANALYSIS",
+        filter_text,
+        end_col=7
+    )
+
+    month_end_row, month_end_col = add_dataframe(
+        month_ws,
+        month_summary,
+        4
+    )
+
+    format_table(
+        month_ws,
+        4,
+        month_end_row,
+        1,
+        month_end_col,
+        "MonthlyAnalysisTable"
+    )
+
+    auto_width(
+        month_ws,
+        max_width=30
+    )
+
+    # --------------------------------------------------------
+    # WEEKLY
+    # --------------------------------------------------------
+
+    week_ws = wb.create_sheet(
+        "Weekly Analysis"
+    )
+
+    style_title(
+        week_ws,
+        "WEEK-WISE ANALYSIS",
+        filter_text,
+        end_col=7
+    )
+
+    week_end_row, week_end_col = add_dataframe(
+        week_ws,
+        week_summary,
+        4
+    )
+
+    format_table(
+        week_ws,
+        4,
+        week_end_row,
+        1,
+        week_end_col,
+        "WeeklyAnalysisTable"
+    )
+
+    auto_width(
+        week_ws,
+        max_width=35
+    )
+
+    # --------------------------------------------------------
+    # DAILY
+    # --------------------------------------------------------
+
+    day_ws = wb.create_sheet(
+        "Daily Analysis"
+    )
+
+    style_title(
+        day_ws,
+        "DAY-WISE ANALYSIS",
+        filter_text,
+        end_col=8
+    )
+
+    day_end_row, day_end_col = add_dataframe(
+        day_ws,
+        day_summary,
+        4
+    )
+
+    format_table(
+        day_ws,
+        4,
+        day_end_row,
+        1,
+        day_end_col,
+        "DailyAnalysisTable"
+    )
+
+    auto_width(
+        day_ws,
+        max_width=25
+    )
+
+    # --------------------------------------------------------
+    # EMAIL FINDINGS
+    # --------------------------------------------------------
+
+    email_ws = wb.create_sheet(
+        "Email Findings"
+    )
+
+    style_title(
+        email_ws,
+        "IMPORTANT FINDINGS — EMAIL READY",
+        filter_text,
+        end_col=8
+    )
+
+    email_ws.merge_cells(
+        "A4:H30"
+    )
+
+    email_ws["A4"] = email_text
+    email_ws["A4"].alignment = Alignment(
+        wrap_text=True,
+        vertical="top"
+    )
+    email_ws["A4"].font = Font(
+        size=11
+    )
+
+    for col in range(1, 9):
+        email_ws.column_dimensions[
+            get_column_letter(col)
+        ].width = 18
+
+    # --------------------------------------------------------
+    # Conditional formatting-like colour coding
+    # --------------------------------------------------------
+
+    for sheet in [
+        issue_ws,
+        month_ws,
+        week_ws,
+        day_ws
+    ]:
+
+        for row in sheet.iter_rows():
+
+            for cell in row:
+
+                if cell.value == "Open":
+                    cell.fill = PatternFill(
+                        "solid",
+                        fgColor="F4CCCC"
+                    )
+
+                elif cell.value == "≤24h":
+                    cell.fill = PatternFill(
+                        "solid",
+                        fgColor=light_green
+                    )
+
+                elif cell.value == ">24h":
+                    cell.fill = PatternFill(
+                        "solid",
+                        fgColor=light_orange
+                    )
+
+    # --------------------------------------------------------
+    # Freeze panes
+    # --------------------------------------------------------
+
+    for sheet in wb.worksheets:
+
+        if sheet.title not in [
+            "Dashboard",
+            "Email Findings"
+        ]:
+            sheet.freeze_panes = "A5" if sheet.title in [
+                "Issue Analysis",
+                "Monthly Analysis",
+                "Weekly Analysis",
+                "Daily Analysis"
+            ] else "A2"
+
+    # --------------------------------------------------------
+    # Save
+    # --------------------------------------------------------
+
+    wb.save(output)
+
+    output.seek(0)
+
+    return output.getvalue()
+
+
 # ============================================================
 # HEADER
 # ============================================================
@@ -1491,6 +2168,56 @@ st.download_button(
 
 
 # ============================================================
+# DOWNLOAD PROFESSIONAL EXCEL REPORT
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">📊 SHAREABLE EXCEL REPORT</div>',
+    unsafe_allow_html=True
+)
+
+st.write(
+    "Download a professionally formatted Excel report containing the "
+    "original raw data, filtered data, KPI dashboard, issue analysis, "
+    "monthly/weekly/daily analysis and email-ready findings."
+)
+
+excel_filter_text = filter_description(
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+)
+
+excel_bytes = build_excel_report(
+    raw_data=df,
+    filtered_data=filtered,
+    issue_summary=issue_summary,
+    month_summary=month_summary,
+    week_summary=week_summary,
+    day_summary=day_summary,
+    email_text=email_text,
+    filter_text=excel_filter_text,
+)
+
+st.download_button(
+    label="⬇️ Download Color-Coded Excel Report",
+    data=excel_bytes,
+    file_name="CG_Helpline_Ticket_Analysis_Report.xlsx",
+    mime=(
+        "application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet"
+    ),
+    type="primary",
+)
+
+st.caption(
+    "The Excel report keeps the raw export on a separate Raw Data sheet "
+    "and adds analysis sheets without changing the original raw columns."
+)
+
+
+# ============================================================
 # RAW DATA PREVIEW
 # ============================================================
 
@@ -1499,3 +2226,5 @@ with st.expander("View Raw Data"):
     st.dataframe(
         df,
         use_container_width=True,
+        height=400
+    )
