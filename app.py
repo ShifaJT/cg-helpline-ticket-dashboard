@@ -677,7 +677,6 @@ def format_hms(hours):
 def get_stats(data):
 
     if data.empty:
-
         return {
             "raised": 0,
             "closed": 0,
@@ -701,31 +700,59 @@ def get_stats(data):
         data["Status Clean"].eq("OPEN")
     ]
 
-    within = closed[
-        closed["Closure Hours"].notna()
-        &
-        (closed["Closure Hours"] <= 24)
-    ]
-
-    after = closed[
-        closed["Closure Hours"].notna()
-        &
-        (closed["Closure Hours"] > 24)
-    ]
-
     valid = closed[
         closed["Closure Hours"].notna()
         &
         (closed["Closure Hours"] >= 0)
+    ].copy()
+
+    within = valid[
+        valid["Closure Hours"] <= 24
+    ]
+
+    after = valid[
+        valid["Closure Hours"] > 24
     ]
 
     if not valid.empty:
-        avg_hours = float(valid["Closure Hours"].mean())
-        median_hours = float(valid["Closure Hours"].median())
-        p90_hours = float(valid["Closure Hours"].quantile(0.90))
-        p95_hours = float(valid["Closure Hours"].quantile(0.95))
-        p99_hours = float(valid["Closure Hours"].quantile(0.99))
+
+        # USER'S PERCENTILE LOGIC:
+        #
+        # 90% percentile = resolution-time cutoff for the slowest 10%
+        # 95% percentile = resolution-time cutoff for the slowest 5%
+        # 99% percentile = resolution-time cutoff for the slowest 1%
+        #
+        # Example:
+        # If 1,000 closed tickets are sorted from fastest to slowest,
+        # the 90% percentile is the resolution time around ticket 900,
+        # the 95% percentile around ticket 950,
+        # and the 99% percentile around ticket 990.
+        #
+        # These are NOT averages of the slowest 10%/5%/1%.
+        # They are the resolution-time cutoffs at those percentages.
+
+        avg_hours = float(
+            valid["Closure Hours"].mean()
+        )
+
+        median_hours = float(
+            valid["Closure Hours"].median()
+        )
+
+        p90_hours = float(
+            valid["Closure Hours"].quantile(0.90)
+        )
+
+        p95_hours = float(
+            valid["Closure Hours"].quantile(0.95)
+        )
+
+        p99_hours = float(
+            valid["Closure Hours"].quantile(0.99)
+        )
+
     else:
+
         avg_hours = 0.0
         median_hours = 0.0
         p90_hours = 0.0
@@ -1357,9 +1384,9 @@ def make_email_summary(
         ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
         ("Average resolution", f"{s['avg']:.2f} hrs", "Average closure time"),
         ("Median resolution", f"{s['median']:.2f} hrs", "Middle resolution time"),
-        ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "90% of valid closed tickets resolved within this time"),
-        ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "95% of valid closed tickets resolved within this time"),
-        ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "99% of valid closed tickets resolved within this time"),
+        ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "Cutoff for the slowest 10% of closed tickets"),
+        ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "Cutoff for the slowest 5% of closed tickets"),
+        ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "Cutoff for the slowest 1% of closed tickets"),
         ("Open >72h", f"{s['old_open']:,}", "Ageing backlog"),
     ]
 
