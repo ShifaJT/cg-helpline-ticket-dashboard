@@ -674,6 +674,49 @@ def format_hms(hours):
 
 
 
+def nearest_rank_time(series, percentile):
+    """
+    Return the resolution time of the ACTUAL ticket at the requested
+    percentile position.
+
+    Example:
+      5,618 closed tickets
+      90% rank = ceil(5,618 * 0.90)
+      95% rank = ceil(5,618 * 0.95)
+      99% rank = ceil(5,618 * 0.99)
+
+    No interpolation and no averaging between tickets.
+    """
+    values = (
+        pd.to_numeric(series, errors="coerce")
+        .dropna()
+    )
+
+    values = values[
+        values >= 0
+    ].sort_values(
+        ascending=True
+    ).reset_index(drop=True)
+
+    n = len(values)
+
+    if n == 0:
+        return 0.0
+
+    rank = int(
+        np.ceil(n * percentile)
+    )
+
+    rank = max(
+        1,
+        min(rank, n)
+    )
+
+    return float(
+        values.iloc[rank - 1]
+    )
+
+
 def get_stats(data):
 
     if data.empty:
@@ -689,6 +732,9 @@ def get_stats(data):
             "p90": 0.0,
             "p95": 0.0,
             "p99": 0.0,
+            "p90_rank": 0,
+            "p95_rank": 0,
+            "p99_rank": 0,
             "old_open": 0,
         }
 
@@ -716,20 +762,13 @@ def get_stats(data):
 
     if not valid.empty:
 
-        # USER'S PERCENTILE LOGIC:
-        #
-        # 90% percentile = resolution-time cutoff for the slowest 10%
-        # 95% percentile = resolution-time cutoff for the slowest 5%
-        # 99% percentile = resolution-time cutoff for the slowest 1%
-        #
-        # Example:
-        # If 1,000 closed tickets are sorted from fastest to slowest,
-        # the 90% percentile is the resolution time around ticket 900,
-        # the 95% percentile around ticket 950,
-        # and the 99% percentile around ticket 990.
-        #
-        # These are NOT averages of the slowest 10%/5%/1%.
-        # They are the resolution-time cutoffs at those percentages.
+        sorted_values = (
+            valid["Closure Hours"]
+            .sort_values()
+            .reset_index(drop=True)
+        )
+
+        n = len(sorted_values)
 
         avg_hours = float(
             valid["Closure Hours"].mean()
@@ -739,16 +778,21 @@ def get_stats(data):
             valid["Closure Hours"].median()
         )
 
+        p90_rank = int(np.ceil(n * 0.90))
+        p95_rank = int(np.ceil(n * 0.95))
+        p99_rank = int(np.ceil(n * 0.99))
+
+        # ACTUAL TICKET VALUES — nearest-rank method.
         p90_hours = float(
-            valid["Closure Hours"].quantile(0.90)
+            sorted_values.iloc[p90_rank - 1]
         )
 
         p95_hours = float(
-            valid["Closure Hours"].quantile(0.95)
+            sorted_values.iloc[p95_rank - 1]
         )
 
         p99_hours = float(
-            valid["Closure Hours"].quantile(0.99)
+            sorted_values.iloc[p99_rank - 1]
         )
 
     else:
@@ -758,6 +802,9 @@ def get_stats(data):
         p90_hours = 0.0
         p95_hours = 0.0
         p99_hours = 0.0
+        p90_rank = 0
+        p95_rank = 0
+        p99_rank = 0
 
     old_open = opened[
         opened["Open Age Hours"] > 72
@@ -779,6 +826,9 @@ def get_stats(data):
         "p90": p90_hours,
         "p95": p95_hours,
         "p99": p99_hours,
+        "p90_rank": p90_rank,
+        "p95_rank": p95_rank,
+        "p99_rank": p99_rank,
         "old_open": len(old_open),
     }
 
@@ -1384,9 +1434,9 @@ def make_email_summary(
         ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
         ("Average resolution", f"{s['avg']:.2f} hrs", "Average closure time"),
         ("Median resolution", f"{s['median']:.2f} hrs", "Middle resolution time"),
-        ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "Cutoff for the slowest 10% of closed tickets"),
-        ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "Cutoff for the slowest 5% of closed tickets"),
-        ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "Cutoff for the slowest 1% of closed tickets"),
+        ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "Actual ticket at the 90% ranked position"),
+        ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "Actual ticket at the 95% ranked position"),
+        ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "Actual ticket at the 99% ranked position"),
         ("Open >72h", f"{s['old_open']:,}", "Ageing backlog"),
     ]
 
