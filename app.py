@@ -2468,7 +2468,7 @@ st.session_state.data = df
 # ============================================================
 
 # MAIN DASHBOARD = ONLY CURRENT CG HELPLINE GROUP
-# OTHER GROUPS = CURRENTLY WITH L3 / OTHER QUEUES
+# OTHER GROUPS = CURRENTLY WITH OTHER QUEUE COUNT
 if "Group" in df.columns:
     df["_Group Clean"] = (
         df["Group"]
@@ -2831,8 +2831,26 @@ st.caption(
 # CURRENTLY IN OTHER / L3 GROUPS
 # ============================================================
 
+
+st.markdown("### CURRENT GROUP DISTRIBUTION")
+
+group_distribution = (
+    df.groupby("_Group Clean")["Ticket ID"]
+    .nunique()
+    .reset_index(name="Tickets")
+    .rename(columns={"_Group Clean": "Current Group"})
+    .sort_values("Tickets", ascending=False)
+    .reset_index(drop=True)
+)
+
+st.dataframe(
+    group_distribution,
+    use_container_width=True,
+    hide_index=True
+)
+
 st.markdown(
-    '<div class="section-header">TICKETS CURRENTLY IN OTHER / L3 GROUPS</div>',
+    '<div class="section-header">TICKETS CURRENTLY IN OTHER QUEUES</div>',
     unsafe_allow_html=True
 )
 
@@ -2909,14 +2927,19 @@ with o6:
 
 with o7:
     show_kpi(
-        "L3 / OTHER QUEUES",
+        "OTHER QUEUE COUNT",
         f"{other['_Group Clean'].nunique():,}"
         if "_Group Clean" in other.columns
         else "0",
         "blue"
     )
 
-st.markdown("### Queue-wise Breakdown")
+st.caption(
+    "Queue Count = number of distinct non-CG Helpline values in the raw Group column. "
+    "It is NOT the number of tickets. The ticket count is shown in OTHER / L3 TICKETS."
+)
+
+st.markdown("### OTHER QUEUE-WISE BREAKDOWN")
 
 if not other.empty:
 
@@ -2968,7 +2991,7 @@ if not other.empty:
             y="Queue / Group",
             orientation="h",
             text="Tickets",
-            title="Tickets Currently in Other / L3 Groups"
+            title="Tickets Currently in Other Queues"
         )
 
         fig_queue.update_layout(
