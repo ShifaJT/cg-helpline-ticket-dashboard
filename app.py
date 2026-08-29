@@ -204,6 +204,85 @@ def read_paste(text):
         return None
 
 
+def parse_resolution_hours(series):
+    """
+    Parse the RAW Freshdesk-style 'Resolution time (in hrs)' column.
+
+    The raw export may arrive as:
+      - H:MM:SS text
+      - pandas Timedelta
+      - datetime/time-like values
+      - numeric Excel time fractions
+      - numeric hours
+
+    The dashboard uses this raw resolution-time field directly.
+    It does NOT calculate resolution as RAW Resolution time (in hrs).
+    """
+
+    result = pd.Series(np.nan, index=series.index, dtype="float64")
+
+    for idx, value in series.items():
+
+        if pd.isna(value):
+            continue
+
+        # Timedelta values
+        if isinstance(value, pd.Timedelta):
+            result.loc[idx] = value.total_seconds() / 3600
+            continue
+
+        # Python timedelta
+        if isinstance(value, __import__("datetime").timedelta):
+            result.loc[idx] = value.total_seconds() / 3600
+            continue
+
+        # Numeric values:
+        # If <= 1, treat as Excel fraction of a day.
+        # Otherwise treat as hours.
+        if isinstance(value, (int, float, np.integer, np.floating)):
+            number = float(value)
+
+            if number < 0:
+                continue
+
+            if number <= 1:
+                result.loc[idx] = number * 24
+            else:
+                result.loc[idx] = number
+
+            continue
+
+        text = str(value).strip()
+
+        if not text:
+            continue
+
+        # H:MM:SS / HH:MM:SS / D days HH:MM:SS
+        try:
+            td = pd.to_timedelta(text, errors="coerce")
+
+            if not pd.isna(td):
+                result.loc[idx] = td.total_seconds() / 3600
+                continue
+        except Exception:
+            pass
+
+        # Numeric text
+        try:
+            number = float(text)
+
+            if number >= 0:
+                if number <= 1:
+                    result.loc[idx] = number * 24
+                else:
+                    result.loc[idx] = number
+
+        except Exception:
+            pass
+
+    return result.clip(lower=0)
+
+
 def parse_datetime_series(series):
     """
     Robust datetime parser.
@@ -375,40 +454,33 @@ def prepare_data(raw):
     )
 
     # --------------------------------------------------------
-    # CLOSURE HOURS
+    # CLOSURE / RESOLUTION HOURS
     #
     # IMPORTANT:
-    # Only CLOSED tickets with both timestamps are included.
-    # Negative values are not allowed.
+    # Use the RAW "Resolution time (in hrs)" column supplied in
+    # the uploaded dump. Do NOT derive this from Closed time -
+    # Created time, because the raw resolution metric can differ
+    # from elapsed calendar time.
     # --------------------------------------------------------
 
-    df["Closure Hours"] = np.nan
+    if "Resolution time (in hrs)" in df.columns:
 
-    closed_mask = (
-        df["Status Clean"].eq("CLOSED")
-        &
-        df["Created time"].notna()
-        &
-        df["Closed time"].notna()
-    )
-
-    df.loc[
-        closed_mask,
-        "Closure Hours"
-    ] = (
-        (
-            df.loc[closed_mask, "Closed time"]
-            -
-            df.loc[closed_mask, "Created time"]
+        df["Closure Hours"] = parse_resolution_hours(
+            df["Resolution time (in hrs)"]
         )
-        .dt.total_seconds()
-        / 3600
-    )
 
-    df["Closure Hours"] = (
-        df["Closure Hours"]
-        .clip(lower=0)
-    )
+        # Only closed tickets are eligible for closure-time metrics.
+        df.loc[
+            ~df["Status Clean"].eq("CLOSED"),
+            "Closure Hours"
+        ] = np.nan
+
+    else:
+
+        # If the raw export does not contain the expected field,
+        # leave resolution time unavailable rather than silently
+        # creating a different metric.
+        df["Closure Hours"] = np.nan
 
     # --------------------------------------------------------
     # SLA BUCKET
@@ -1862,7 +1934,7 @@ def build_excel_report(
         (
             "Average Closure Time",
             format_hms(s["avg"]),
-            "Average of Calculated Resolution Time for valid closed tickets"
+            "Average of RAW Resolution time (in hrs) for valid closed tickets"
         ),
         (
             "Median Closure Time",
@@ -1872,17 +1944,17 @@ def build_excel_report(
         (
             "90% Percentile",
             format_hms(s["p90"]),
-            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.90)"
+            "Excel PERCENTILE.INC(RAW Resolution time (in hrs), 0.90)"
         ),
         (
             "95% Percentile",
             format_hms(s["p95"]),
-            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.95)"
+            "Excel PERCENTILE.INC(RAW Resolution time (in hrs), 0.95)"
         ),
         (
             "99% Percentile",
             format_hms(s["p99"]),
-            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.99)"
+            "Excel PERCENTILE.INC(RAW Resolution time (in hrs), 0.99)"
         ),
         (
             "Closed ≤24h",
@@ -2007,7 +2079,7 @@ def build_excel_report(
     # Explicit ticket-level calculation used by the dashboard:
     # Closed Time - Created Time.
     if "Closure Hours" in filtered_data.columns:
-        filtered_export["Calculated Resolution Time"] = (
+        filtered_export["Resolution Time Used for Dashboard"] = (
             filtered_data["Closure Hours"]
             .apply(format_hms)
         )
@@ -2073,7 +2145,7 @@ def build_excel_report(
     filtered_ws.cell(
         note_row + 1,
         1,
-        "Calculated Resolution Time = Closed time - Created time. "
+        "Calculated Resolution Time = RAW 'Resolution time (in hrs)' from the uploaded dump. "
         "Only CLOSED tickets with valid Created and Closed timestamps "
         "are included in closure-time, SLA and percentile calculations. "
         "The 90%, 95% and 99% values use Excel PERCENTILE.INC-style "
