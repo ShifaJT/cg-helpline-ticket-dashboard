@@ -660,6 +660,20 @@ def fcr_period_summary(data, period_column):
     return result
 
 
+def format_hms(hours):
+    """Convert decimal hours to H:MM:SS."""
+    if hours is None or pd.isna(hours):
+        return "0:00:00"
+
+    total_seconds = max(0, int(round(float(hours) * 3600)))
+
+    h, rem = divmod(total_seconds, 3600)
+    m, s = divmod(rem, 60)
+
+    return f"{h}:{m:02d}:{s:02d}"
+
+
+
 def get_stats(data):
 
     if data.empty:
@@ -1291,13 +1305,13 @@ def make_email_summary(
         )
 
         resolution_text = (
-            f"The average resolution time was {s['avg']:.2f} hours and "
-            f"the median was {s['median']:.2f} hours. The 90th percentile "
-            f"(P90) was {s['p90']:.2f} hours, meaning 90% of valid closed "
-            f"tickets were resolved within this time. The 95th percentile "
-            f"(P95) was {s['p95']:.2f} hours, meaning 95% of valid closed "
-            f"tickets were resolved within this time. The 99th percentile "
-            f"(P99) was {s['p99']:.2f} hours, meaning 99% were resolved "
+            f"The average resolution time was {format_hms(s['avg'])} and "
+            f"the median was {format_hms(s['median'])}. The 90% percentile "
+            f"was {format_hms(s['p90'])}, meaning 90% of valid closed "
+            f"tickets were resolved within this time. The 95% percentile "
+            f"was {format_hms(s['p95'])}, meaning 95% of valid closed "
+            f"tickets were resolved within this time. The 99% percentile "
+            f"was {format_hms(s['p99'])}, meaning 99% were resolved "
             f"within this time. 90% and 99% percentile help highlight the long-tail "
             f"cases that take considerably longer to resolve."
         )
@@ -2749,7 +2763,7 @@ with r2[1]:
 with r2[2]:
     show_kpi(
         "AVG CLOSURE HRS",
-        f"{s['avg']:.2f}",
+        format_hms(s["avg"]),
         "blue"
     )
 
@@ -2769,21 +2783,21 @@ r3 = st.columns(3)
 with r3[0]:
     show_kpi(
         "90% PERCENTILE RESOLUTION HRS",
-        f"{s['p90']:.2f}",
+        format_hms(s["p90"]),
         "blue"
     )
 
 with r3[1]:
     show_kpi(
         "95% PERCENTILE RESOLUTION HRS",
-        f"{s['p95']:.2f}",
+        format_hms(s["p95"]),
         "orange"
     )
 
 with r3[2]:
     show_kpi(
         "99% PERCENTILE RESOLUTION HRS",
-        f"{s['p99']:.2f}",
+        format_hms(s["p99"]),
         "red"
     )
 
