@@ -672,6 +672,9 @@ def get_stats(data):
             "after": 0,
             "rate": 0.0,
             "avg": 0.0,
+            "median": 0.0,
+            "p90": 0.0,
+            "p99": 0.0,
             "old_open": 0,
         }
 
@@ -697,13 +700,20 @@ def get_stats(data):
 
     valid = closed[
         closed["Closure Hours"].notna()
+        &
+        (closed["Closure Hours"] >= 0)
     ]
 
-    avg_hours = (
-        valid["Closure Hours"].mean()
-        if not valid.empty
-        else 0.0
-    )
+    if not valid.empty:
+        avg_hours = float(valid["Closure Hours"].mean())
+        median_hours = float(valid["Closure Hours"].median())
+        p90_hours = float(valid["Closure Hours"].quantile(0.90))
+        p99_hours = float(valid["Closure Hours"].quantile(0.99))
+    else:
+        avg_hours = 0.0
+        median_hours = 0.0
+        p90_hours = 0.0
+        p99_hours = 0.0
 
     old_open = opened[
         opened["Open Age Hours"] > 72
@@ -720,7 +730,10 @@ def get_stats(data):
             if len(closed)
             else 0.0
         ),
-        "avg": float(avg_hours),
+        "avg": avg_hours,
+        "median": median_hours,
+        "p90": p90_hours,
+        "p99": p99_hours,
         "old_open": len(old_open),
     }
 
@@ -1227,7 +1240,6 @@ def make_email_summary(
 ):
 
     s = get_stats(data)
-    g = requested_group_counts(data)
 
     scope = (
         "CG Helpline current queue | "
@@ -1239,158 +1251,164 @@ def make_email_summary(
         )
     )
 
-    # --------------------------------------------------------
-    # Top issue
-    # --------------------------------------------------------
-
     issue_summary = summary_by_group(
         data,
         "Issue L1"
     )
 
-    top_issue_text = "No issue-type data available."
+    top_issue = "No issue-type data available"
+    top_issue_count = 0
+    top_issue_share = 0.0
 
     if not issue_summary.empty:
-
         top = issue_summary.iloc[0]
-
-        share = (
-            top["Raised"] / s["raised"] * 100
-            if s["raised"]
-            else 0
+        top_issue = str(top["Issue L1"])
+        top_issue_count = int(top["Raised"])
+        top_issue_share = (
+            top_issue_count / s["raised"] * 100
+            if s["raised"] else 0
         )
 
-        top_issue_text = (
-            f"{top['Issue L1']} had the highest inflow "
-            f"with {int(top['Raised']):,} tickets "
-            f"({share:.1f}% of total inflow)."
+    second_issue_text = ""
+
+    if len(issue_summary) > 1:
+        second = issue_summary.iloc[1]
+        second_issue_text = (
+            f"The second-highest contributing issue was "
+            f"{second['Issue L1']} with {int(second['Raised']):,} tickets."
         )
 
-    # --------------------------------------------------------
-    # Open backlog
-    # --------------------------------------------------------
+    if s["closed"]:
+        sla_text = (
+            f"Out of {s['closed']:,} closed tickets, {s['within']:,} "
+            f"were closed within 24 hours and {s['after']:,} exceeded "
+            f"the 24-hour SLA. The resulting 24-hour closure rate was "
+            f"{s['rate'] * 100:.1f}%."
+        )
+
+        resolution_text = (
+            f"The average resolution time was {s['avg']:.2f} hours and "
+            f"the median was {s['median']:.2f} hours. The 90th percentile "
+            f"(P90) was {s['p90']:.2f} hours, meaning 90% of valid closed "
+            f"tickets were resolved within this time. The 99th percentile "
+            f"(P99) was {s['p99']:.2f} hours, meaning 99% were resolved "
+            f"within this time. P90 and P99 help highlight the long-tail "
+            f"cases that take considerably longer to resolve."
+        )
+    else:
+        sla_text = "There are no valid closed tickets for SLA analysis."
+        resolution_text = (
+            "Average, median, P90 and P99 resolution times are unavailable "
+            "because there are no valid closed-ticket resolution times."
+        )
 
     backlog_text = (
-        f"There are {s['open']:,} open tickets."
+        f"There are {s['open']:,} tickets currently open."
     )
 
     if s["old_open"]:
-
         backlog_text += (
-            f" {s['old_open']:,} open tickets are older than 72 hours."
+            f" {s['old_open']:,} of these are older than 72 hours "
+            f"and should be prioritised."
         )
-
-    # --------------------------------------------------------
-    # SLA
-    # --------------------------------------------------------
-
-    if s["closed"]:
-
-        sla_text = (
-            f"24-hour closure performance is "
-            f"{s['rate'] * 100:.1f}% "
-            f"({s['within']:,} of {s['closed']:,} closed tickets "
-            f"were closed within 24 hours)."
-        )
-
     else:
-
-        sla_text = (
-            "No closed tickets are available for 24-hour SLA analysis."
+        backlog_text += (
+            " There are no open tickets older than 72 hours."
         )
-
-    # --------------------------------------------------------
-    # Slow closures
-    # --------------------------------------------------------
-
-    slow_text = ""
-
-    if s["after"]:
-
-        slow_text = (
-            f"{s['after']:,} closed tickets exceeded 24 hours."
-        )
-
-    else:
-
-        slow_text = (
-            "No closed tickets exceeded 24 hours."
-        )
-
-    # --------------------------------------------------------
-    # Average closure
-    # --------------------------------------------------------
-
-    if s["closed"]:
-
-        avg_text = (
-            f"Average closure time is {s['avg']:.2f} hours."
-        )
-
-    else:
-
-        avg_text = (
-            "Average closure time is not available because there are no valid closed-ticket timestamps."
-        )
-
-    # --------------------------------------------------------
-    # Date range
-    # --------------------------------------------------------
 
     if data["Created time"].notna().any():
-
         min_date = data["Created time"].min()
         max_date = data["Created time"].max()
-
         date_text = (
-            f"Ticket inflow period: "
+            f"The report covers ticket inflow from "
             f"{min_date.strftime('%d %b %Y')} to "
             f"{max_date.strftime('%d %b %Y')}."
         )
-
     else:
+        date_text = "The reporting period could not be determined."
 
-        date_text = "Ticket inflow period could not be determined."
+    # Copy/paste-friendly table for Outlook/Gmail.
+    findings = [
+        ("Tickets raised", f"{s['raised']:,}", "Total ticket inflow"),
+        ("Tickets closed", f"{s['closed']:,}", "Tickets closed"),
+        ("Tickets open", f"{s['open']:,}", "Current backlog"),
+        ("Closed within 24h", f"{s['within']:,}", "Met 24-hour SLA"),
+        ("Closed >24h", f"{s['after']:,}", "Exceeded 24-hour SLA"),
+        ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
+        ("Average resolution", f"{s['avg']:.2f} hrs", "Average closure time"),
+        ("Median resolution", f"{s['median']:.2f} hrs", "Middle resolution time"),
+        ("P90 resolution", f"{s['p90']:.2f} hrs", "90% of valid closed tickets resolved within this time"),
+        ("P99 resolution", f"{s['p99']:.2f} hrs", "99% of valid closed tickets resolved within this time"),
+        ("Open >72h", f"{s['old_open']:,}", "Ageing backlog"),
+    ]
 
-    # --------------------------------------------------------
-    # Email
-    # --------------------------------------------------------
+    w1 = max(len("Metric"), max(len(x[0]) for x in findings)) + 3
+    w2 = max(len("Value"), max(len(x[1]) for x in findings)) + 3
+
+    table_lines = [
+        f"{'Metric'.ljust(w1)}{'Value'.ljust(w2)}Comments",
+        "-" * (w1 + w2 + 65),
+    ]
+
+    for metric, value, comment in findings:
+        table_lines.append(
+            f"{metric.ljust(w1)}{value.ljust(w2)}{comment}"
+        )
+
+    findings_table = "\n".join(table_lines)
+
+    top_issue_text = (
+        f"{top_issue} was the highest-contributing issue type, with "
+        f"{top_issue_count:,} tickets, representing {top_issue_share:.1f}% "
+        f"of total inflow."
+        if top_issue_count
+        else "No issue-type contribution could be identified."
+    )
 
     email = f"""Subject: CG Helpline Ticket Performance Update – {scope}
 
 Hi Team,
 
-Please find below the CG Helpline ticket performance summary for {scope}.
+Please find below the CG Helpline ticket performance update for {scope}.
 
-Key findings:
-• Total tickets raised: {s['raised']:,}
-• Tickets closed: {s['closed']:,}
-• Tickets currently open: {s['open']:,}
-• Closed within 24 hours: {s['within']:,}
-• Closed after 24 hours: {s['after']:,}
-• 24-hour closure rate: {s['rate'] * 100:.1f}%
-• Average closure time: {s['avg']:.2f} hours
-• Open tickets older than 72 hours: {s['old_open']:,}
+This update provides a concise view of ticket inflow, closure performance, SLA adherence and resolution-time distribution. The key findings are presented in a table for easier review.
 
-Operational observations:
-• {top_issue_text}
-• {sla_text}
-• {slow_text}
-• {backlog_text}
-• {avg_text}
-• {date_text}
+KEY FINDINGS
 
-Recommended focus:
-• Review the open tickets older than 72 hours and prioritize ageing cases.
-• Review the issue types contributing the highest ticket inflow.
-• Track tickets exceeding the 24-hour closure SLA and identify recurring causes.
+{findings_table}
+
+MANAGEMENT OBSERVATIONS
+
+1. Ticket inflow
+{top_issue_text}
+{second_issue_text}
+
+2. Closure and SLA performance
+{sla_text}
+
+3. Resolution-time distribution
+{resolution_text}
+
+4. Backlog
+{backlog_text}
+
+5. Reporting period
+{date_text}
+
+RECOMMENDED FOCUS
+
+• Prioritise ageing open tickets and cases approaching the 72-hour threshold.
+• Review tickets exceeding the 24-hour SLA and identify recurring operational or issue-type drivers.
+• Review P90 and P99 resolution times to understand the long-tail cases requiring significantly more time to resolve.
+• Focus on the highest-contributing issue types for potential process, routing or knowledge-base improvements.
+
+Overall, the key opportunity is to improve 24-hour SLA adherence while reducing the long-tail resolution time reflected in the P90 and P99 metrics.
 
 Regards,
 CG Helpline
 """
 
     return email
-
 
 
 # ============================================================
