@@ -603,6 +603,192 @@ def summary_by_group(data, group_column):
 
 
 
+
+def issue_analysis(data):
+    """
+    Issue Type L1 + L2 analysis using unique Ticket ID.
+    """
+    cols = [
+        "Issue Type - L1",
+        "Issue Type - L2",
+        "Tickets",
+        "% of Tickets",
+        "Closed",
+        "Open",
+        "≤24h",
+        ">24h",
+        "24h %",
+    ]
+
+    if data.empty:
+        return pd.DataFrame(columns=cols)
+
+    x = data.copy()
+
+    x["Issue L1 Analysis"] = (
+        x["Issue Type - L1"]
+        .fillna("Unspecified")
+        .astype(str)
+        .str.strip()
+    )
+
+    x.loc[
+        x["Issue L1 Analysis"].eq(""),
+        "Issue L1 Analysis"
+    ] = "Unspecified"
+
+    x["Issue L2 Analysis"] = (
+        x["Issue Type - L2"]
+        .fillna("Unspecified")
+        .astype(str)
+        .str.strip()
+    )
+
+    x.loc[
+        x["Issue L2 Analysis"].eq(""),
+        "Issue L2 Analysis"
+    ] = "Unspecified"
+
+    rows = []
+
+    for (l1, l2), group in x.groupby(
+        ["Issue L1 Analysis", "Issue L2 Analysis"],
+        dropna=False,
+        sort=False
+    ):
+        s = get_stats(group)
+
+        rows.append({
+            "Issue Type - L1": l1,
+            "Issue Type - L2": l2,
+            "Tickets": group["Ticket ID"].nunique(),
+            "% of Tickets": 0,
+            "Closed": s["closed"],
+            "Open": s["open"],
+            "≤24h": s["within"],
+            ">24h": s["after"],
+            "24h %": round(s["rate"] * 100, 1),
+        })
+
+    result = pd.DataFrame(rows)
+
+    total = result["Tickets"].sum()
+
+    if total:
+        result["% of Tickets"] = (
+            result["Tickets"] / total * 100
+        ).round(1)
+
+    return result.sort_values(
+        ["Tickets", "Issue Type - L1", "Issue Type - L2"],
+        ascending=[False, True, True]
+    ).reset_index(drop=True)
+
+
+def issue_contributors(data):
+    """
+    Returns top and low contributing Issue L1 categories.
+    Low contributing = categories with the smallest ticket counts.
+    """
+    if data.empty:
+        empty = pd.DataFrame(
+            columns=[
+                "Issue Type - L1",
+                "Tickets",
+                "% of Tickets"
+            ]
+        )
+        return empty, empty
+
+    x = (
+        data.groupby("Issue L1")["Ticket ID"]
+        .nunique()
+        .reset_index(name="Tickets")
+        .rename(columns={"Issue L1": "Issue Type - L1"})
+    )
+
+    total = x["Tickets"].sum()
+
+    x["% of Tickets"] = (
+        (x["Tickets"] / total * 100).round(1)
+        if total
+        else 0
+    )
+
+    top = x.sort_values(
+        ["Tickets", "Issue Type - L1"],
+        ascending=[False, True]
+    ).head(10)
+
+    low = x.sort_values(
+        ["Tickets", "Issue Type - L1"],
+        ascending=[True, True]
+    ).head(10)
+
+    return top.reset_index(drop=True), low.reset_index(drop=True)
+
+
+def group_period_analysis(data, period_column):
+    """
+    Period-wise Group analysis:
+    shows total tickets and the number recorded in CG Helpline,
+    Credit Escalation and High Returns/Reattempts.
+    """
+    if data.empty:
+        return pd.DataFrame()
+
+    x = data.copy()
+
+    x["Group Analysis"] = (
+        x["Group"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .apply(group_bucket)
+    )
+
+    rows = []
+
+    for period, g in x.groupby(
+        period_column,
+        dropna=False,
+        sort=False
+    ):
+        total = g["Ticket ID"].nunique()
+
+        cg = g.loc[
+            g["Group Analysis"].eq("CG Helpline"),
+            "Ticket ID"
+        ].nunique()
+
+        credit = g.loc[
+            g["Group Analysis"].eq("Credit Escalation"),
+            "Ticket ID"
+        ].nunique()
+
+        returns = g.loc[
+            g["Group Analysis"].eq("High Returns/Reattempts"),
+            "Ticket ID"
+        ].nunique()
+
+        other = max(
+            total - cg - credit - returns,
+            0
+        )
+
+        rows.append({
+            period_column: period,
+            "Tickets Raised": total,
+            "CG Helpline": cg,
+            "Credit Escalation": credit,
+            "High Returns/Reattempts": returns,
+            "Other Groups": other,
+        })
+
+    return pd.DataFrame(rows)
+
+
+
 def group_bucket(value):
     text = str(value).strip()
     if text == "" or text.lower() == "nan":
@@ -1322,6 +1508,216 @@ def build_excel_report(
     auto_width(group_ws, max_width=32)
 
     # --------------------------------------------------------
+    # ISSUE L1 & L2 ANALYSIS
+    # --------------------------------------------------------
+
+    issue_detail_ws = wb.create_sheet(
+        "Issue L1 & L2 Analysis"
+    )
+
+    style_title(
+        issue_detail_ws,
+        "ISSUE TYPE L1 & L2 ANALYSIS",
+        filter_text,
+        end_col=9
+    )
+
+    issue_detail_end_row, issue_detail_end_col = add_dataframe(
+        issue_detail_ws,
+        issue_analysis(filtered_data),
+        4
+    )
+
+    format_table(
+        issue_detail_ws,
+        4,
+        issue_detail_end_row,
+        1,
+        issue_detail_end_col,
+        "IssueL1L2Table"
+    )
+
+    auto_width(
+        issue_detail_ws,
+        max_width=34
+    )
+
+    # --------------------------------------------------------
+    # TOP / LOW CONTRIBUTORS
+    # --------------------------------------------------------
+
+    contrib_ws = wb.create_sheet(
+        "Top Low Issues"
+    )
+
+    style_title(
+        contrib_ws,
+        "TOP & LOW CONTRIBUTING ISSUE TYPES",
+        filter_text,
+        end_col=6
+    )
+
+    top_xl, low_xl = issue_contributors(
+        filtered_data
+    )
+
+    contrib_ws["A4"] = "TOP CONTRIBUTING ISSUE TYPES"
+    contrib_ws["A4"].font = Font(
+        bold=True,
+        color=white
+    )
+    contrib_ws["A4"].fill = PatternFill(
+        "solid",
+        fgColor=green
+    )
+
+    top_end_row, top_end_col = add_dataframe(
+        contrib_ws,
+        top_xl,
+        5
+    )
+
+    format_table(
+        contrib_ws,
+        5,
+        top_end_row,
+        1,
+        top_end_col,
+        "TopIssuesTable"
+    )
+
+    start_low = top_end_row + 3
+
+    contrib_ws.cell(
+        start_low,
+        1,
+        "LOW CONTRIBUTING ISSUE TYPES"
+    ).font = Font(
+        bold=True,
+        color=white
+    )
+    contrib_ws.cell(
+        start_low,
+        1
+    ).fill = PatternFill(
+        "solid",
+        fgColor=orange
+    )
+
+    low_end_row, low_end_col = add_dataframe(
+        contrib_ws,
+        low_xl,
+        start_low + 1
+    )
+
+    format_table(
+        contrib_ws,
+        start_low + 1,
+        low_end_row,
+        1,
+        low_end_col,
+        "LowIssuesTable"
+    )
+
+    auto_width(
+        contrib_ws,
+        max_width=34
+    )
+
+    # --------------------------------------------------------
+    # MONTHLY GROUP ANALYSIS
+    # --------------------------------------------------------
+
+    monthly_group_ws = wb.create_sheet(
+        "Monthly Group Analysis"
+    )
+
+    style_title(
+        monthly_group_ws,
+        "MONTH-WISE GROUP BREAKUP",
+        filter_text,
+        end_col=6
+    )
+
+    monthly_group_end_row, monthly_group_end_col = add_dataframe(
+        monthly_group_ws,
+        group_period_analysis(filtered_data, "Month"),
+        4
+    )
+
+    format_table(
+        monthly_group_ws,
+        4,
+        monthly_group_end_row,
+        1,
+        monthly_group_end_col,
+        "MonthlyGroupTable"
+    )
+
+    auto_width(
+        monthly_group_ws,
+        max_width=32
+    )
+
+    # --------------------------------------------------------
+    # WEEKLY GROUP ANALYSIS
+    # --------------------------------------------------------
+
+    weekly_group_ws = wb.create_sheet(
+        "Weekly Group Analysis"
+    )
+
+    style_title(
+        weekly_group_ws,
+        "WEEK-WISE GROUP BREAKUP",
+        filter_text,
+        end_col=6
+    )
+
+    weekly_group_data = group_period_analysis(
+        filtered_data,
+        "Week"
+    )
+
+    if not weekly_group_data.empty and "Week Start" in filtered_data.columns:
+
+        week_order_xl = (
+            filtered_data[["Week", "Week Start"]]
+            .drop_duplicates()
+            .sort_values("Week Start")
+            [["Week"]]
+        )
+
+        weekly_group_data = (
+            week_order_xl
+            .merge(
+                weekly_group_data,
+                on="Week",
+                how="left"
+            )
+        )
+
+    weekly_group_end_row, weekly_group_end_col = add_dataframe(
+        weekly_group_ws,
+        weekly_group_data,
+        4
+    )
+
+    format_table(
+        weekly_group_ws,
+        4,
+        weekly_group_end_row,
+        1,
+        weekly_group_end_col,
+        "WeeklyGroupTable"
+    )
+
+    auto_width(
+        weekly_group_ws,
+        max_width=38
+    )
+
+    # --------------------------------------------------------
     # MONTHLY
     # --------------------------------------------------------
 
@@ -1673,13 +2069,15 @@ f1, f2, f3, f4 = st.columns(4)
 # MONTH
 # ------------------------------------------------------------
 
+# Keep each month only once. The previous version used
+# drop_duplicates() on both Month and Created time, which meant
+# every different date in the same month created another "Jul 2026"
+# entry in the dropdown.
 month_values = (
-    df[
-        ["Month", "Created time"]
-    ]
-    .dropna(subset=["Month"])
-    .drop_duplicates()
+    df[["Month", "Created time"]]
+    .dropna(subset=["Month", "Created time"])
     .sort_values("Created time")
+    .drop_duplicates(subset=["Month"], keep="first")
     ["Month"]
     .tolist()
 )
@@ -1949,61 +2347,106 @@ if not group_summary.empty:
 # ============================================================
 
 st.markdown(
-    '<div class="section-header">ISSUE TYPE-WISE BREAKUP</div>',
+    '<div class="section-header">ISSUE TYPE-WISE BREAKUP — L1 & L2</div>',
     unsafe_allow_html=True
 )
 
-issue_summary = summary_by_group(
-    filtered,
-    "Issue L1"
-)
+issue_detail = issue_analysis(filtered)
 
-if not issue_summary.empty:
+if not issue_detail.empty:
 
-    issue_summary = issue_summary.sort_values(
-        "Raised",
-        ascending=False
+    st.dataframe(
+        issue_detail,
+        use_container_width=True,
+        hide_index=True
     )
 
-    left, right = st.columns(
-        [1.1, 0.9]
+    top_issues, low_issues = issue_contributors(
+        filtered
     )
 
-    with left:
+    st.markdown(
+        '<div class="section-header">TOP & LOW CONTRIBUTING ISSUES</div>',
+        unsafe_allow_html=True
+    )
+
+    ic1, ic2 = st.columns(2)
+
+    with ic1:
+
+        st.markdown("**🔥 Top contributing Issue Types - L1**")
 
         st.dataframe(
-            issue_summary,
+            top_issues,
             use_container_width=True,
             hide_index=True
         )
 
-    with right:
+        if not top_issues.empty:
 
-        import plotly.express as px
+            import plotly.express as px
 
-        fig = px.bar(
-            issue_summary,
-            x="Raised",
-            y="Issue L1",
-            orientation="h",
-            text="Raised",
-            title="Tickets by Issue Type"
-        )
-
-        fig.update_layout(
-            height=400,
-            margin=dict(
-                l=10,
-                r=10,
-                t=50,
-                b=10
+            fig_top = px.bar(
+                top_issues.sort_values("Tickets"),
+                x="Tickets",
+                y="Issue Type - L1",
+                orientation="h",
+                text="Tickets",
+                title="Top Contributors"
             )
+
+            fig_top.update_layout(
+                height=380,
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=50,
+                    b=10
+                )
+            )
+
+            st.plotly_chart(
+                fig_top,
+                use_container_width=True
+            )
+
+    with ic2:
+
+        st.markdown("**Low contributing Issue Types - L1**")
+
+        st.dataframe(
+            low_issues,
+            use_container_width=True,
+            hide_index=True
         )
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        if not low_issues.empty:
+
+            import plotly.express as px
+
+            fig_low = px.bar(
+                low_issues.sort_values("Tickets"),
+                x="Tickets",
+                y="Issue Type - L1",
+                orientation="h",
+                text="Tickets",
+                title="Low Contributors"
+            )
+
+            fig_low.update_layout(
+                height=380,
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=50,
+                    b=10
+                )
+            )
+
+            st.plotly_chart(
+                fig_low,
+                use_container_width=True
+            )
 
 
 # ============================================================
@@ -2075,6 +2518,30 @@ if not month_summary.empty:
         )
 
 
+
+# ============================================================
+# MONTH-WISE GROUP MOVEMENT / ALLOCATION
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">MONTH-WISE GROUP BREAKUP</div>',
+    unsafe_allow_html=True
+)
+
+month_group = group_period_analysis(
+    filtered,
+    "Month"
+)
+
+if not month_group.empty:
+
+    st.dataframe(
+        month_group,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
 # ============================================================
 # WEEK-WISE
 # ============================================================
@@ -2144,6 +2611,48 @@ if not week_summary.empty:
             fig,
             use_container_width=True
         )
+
+
+
+# ============================================================
+# WEEK-WISE GROUP MOVEMENT / ALLOCATION
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">WEEK-WISE GROUP BREAKUP</div>',
+    unsafe_allow_html=True
+)
+
+week_group = group_period_analysis(
+    filtered,
+    "Week"
+)
+
+if not week_group.empty:
+
+    # Keep the same chronological order as the weekly analysis.
+    if "Week Start" in filtered.columns:
+        week_order = (
+            filtered[["Week", "Week Start"]]
+            .drop_duplicates()
+            .sort_values("Week Start")
+            [["Week"]]
+        )
+
+        week_group = (
+            week_order
+            .merge(
+                week_group,
+                on="Week",
+                how="left"
+            )
+        )
+
+    st.dataframe(
+        week_group,
+        use_container_width=True,
+        hide_index=True
+    )
 
 
 # ============================================================
