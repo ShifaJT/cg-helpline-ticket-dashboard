@@ -1066,6 +1066,381 @@ def requested_group_counts(data):
     }
 
 
+
+def _find_column(df, candidates):
+    """Return the first matching column using normalized names."""
+    normalized = {
+        re.sub(r"[^a-z0-9]+", "", str(c).lower()): c
+        for c in df.columns
+    }
+
+    for candidate in candidates:
+        key = re.sub(r"[^a-z0-9]+", "", candidate.lower())
+        if key in normalized:
+            return normalized[key]
+
+    # Fuzzy fallback
+    for key, original in normalized.items():
+        for candidate in candidates:
+            ck = re.sub(r"[^a-z0-9]+", "", candidate.lower())
+            if ck in key or key in ck:
+                return original
+
+    return None
+
+
+def prepare_movement_history(history_df, raw_df):
+    """
+    Convert a ticket activity/history export into actual CG Helpline
+    movement events.
+
+    Expected information:
+      Ticket ID
+      Activity / Movement timestamp
+      From Group
+      To Group
+
+    Common alternate column names are supported.
+    """
+    if history_df is None or history_df.empty:
+        return pd.DataFrame(), "Movement history is empty."
+
+    h = history_df.copy()
+
+    ticket_col = _find_column(
+        h,
+        [
+            "Ticket ID", "Ticket Id", "TicketID",
+            "ticket_id", "id"
+        ]
+    )
+
+    time_col = _find_column(
+        h,
+        [
+            "Activity Time", "Activity Timestamp",
+            "Movement Time", "Movement Timestamp",
+            "Updated Time", "Event Time",
+            "Created time", "Timestamp", "Time"
+        ]
+    )
+
+    from_col = _find_column(
+        h,
+        [
+            "From Group", "Previous Group",
+            "Old Group", "Source Group",
+            "From Queue", "Previous Queue"
+        ]
+    )
+
+    to_col = _find_column(
+        h,
+        [
+            "To Group", "New Group",
+            "Current Group", "Destination Group",
+            "To Queue", "Destination Queue"
+        ]
+    )
+
+    if not ticket_col or not time_col or not to_col:
+        return pd.DataFrame(), (
+            "Movement history must contain Ticket ID, a movement/activity "
+            "timestamp, and To Group/Destination Group."
+        )
+
+    h = h.rename(
+        columns={
+            ticket_col: "Ticket ID",
+            time_col: "Movement Time",
+            to_col: "Moved To",
+        }
+    )
+
+    if from_col:
+        h = h.rename(columns={from_col: "Moved From"})
+    else:
+        h["Moved From"] = ""
+
+    h["Ticket ID"] = h["Ticket ID"].astype(str).str.strip()
+    h["Movement Time"] = pd.to_datetime(
+        h["Movement Time"],
+        errors="coerce"
+    )
+
+    h["Moved From"] = (
+        h["Moved From"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    h["Moved To"] = (
+        h["Moved To"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    h = h.dropna(subset=["Movement Time"])
+    h = h[h["Ticket ID"].ne("")]
+    h = h[h["Moved To"].ne("")]
+
+    # Actual CG movement:
+    # from CG Helpline to a different destination.
+    from_is_cg = (
+        h["Moved From"]
+        .apply(group_bucket)
+        .eq("CG Helpline")
+    )
+
+    # If From Group isn't available, use To Group != CG and let the
+    # user see that the event is inferred from the history export.
+    if h["Moved From"].replace("", np.nan).notna().sum() == 0:
+        movement_events = h[
+            ~h["Moved To"].apply(group_bucket).eq("CG Helpline")
+        ].copy()
+        movement_events["Movement Basis"] = "Inferred from destination"
+    else:
+        movement_events = h[
+            from_is_cg
+            & ~h["Moved To"].apply(group_bucket).eq("CG Helpline")
+        ].copy()
+        movement_events["Movement Basis"] = "From CG Helpline → destination"
+
+    if movement_events.empty:
+        return pd.DataFrame(), (
+            "No movement events from CG Helpline to another group "
+            "were found in the history file."
+        )
+
+    # Pull ticket outcome fields from the raw dump.
+    r = raw_df.copy()
+
+    r["Ticket ID"] = r["Ticket ID"].astype(str).str.strip()
+
+    keep = [
+        c for c in [
+            "Ticket ID",
+            "Status Clean",
+            "Status",
+            "Created time",
+            "Resolved time",
+            "Closed time",
+            "Issue L1",
+            "Issue L2",
+            "Priority",
+            "Subject",
+        ]
+        if c in r.columns
+    ]
+
+    ticket_info = (
+        r[keep]
+        .drop_duplicates("Ticket ID", keep="last")
+    )
+
+    movement_events = movement_events.merge(
+        ticket_info,
+        on="Ticket ID",
+        how="left"
+    )
+
+    movement_events["Moved To Group"] = (
+        movement_events["Moved To"]
+        .apply(group_bucket)
+    )
+
+    # Prefer Resolved time; otherwise Closed time.
+    if "Resolved time" in movement_events.columns:
+        resolution_time = pd.to_datetime(
+            movement_events["Resolved time"],
+            errors="coerce"
+        )
+    else:
+        resolution_time = pd.Series(
+            pd.NaT,
+            index=movement_events.index
+        )
+
+    if "Closed time" in movement_events.columns:
+        closed_time = pd.to_datetime(
+            movement_events["Closed time"],
+            errors="coerce"
+        )
+        resolution_time = resolution_time.fillna(closed_time)
+
+    movement_events["Resolution Time"] = resolution_time
+
+    movement_events["Hours After Move"] = (
+        (
+            movement_events["Resolution Time"]
+            - movement_events["Movement Time"]
+        ).dt.total_seconds() / 3600
+    )
+
+    # Negative values indicate bad/out-of-order source data.
+    movement_events.loc[
+        movement_events["Hours After Move"] < 0,
+        "Hours After Move"
+    ] = np.nan
+
+    status = (
+        movement_events["Status Clean"]
+        if "Status Clean" in movement_events.columns
+        else movement_events.get(
+            "Status",
+            pd.Series("", index=movement_events.index)
+        ).astype(str).str.upper().str.strip()
+    )
+
+    movement_events["Outcome"] = np.where(
+        status.eq("CLOSED"),
+        "Closed",
+        np.where(status.eq("OPEN"), "Open", status)
+    )
+
+    movement_events["Closed ≤24h After Move"] = (
+        movement_events["Outcome"].eq("Closed")
+        & movement_events["Hours After Move"].notna()
+        & movement_events["Hours After Move"].le(24)
+    )
+
+    movement_events["Closed >24h After Move"] = (
+        movement_events["Outcome"].eq("Closed")
+        & movement_events["Hours After Move"].notna()
+        & movement_events["Hours After Move"].gt(24)
+    )
+
+    movement_events["Movement Date"] = (
+        movement_events["Movement Time"].dt.normalize()
+    )
+
+    movement_events["Movement Month"] = (
+        movement_events["Movement Time"]
+        .dt.strftime("%b %Y")
+    )
+
+    movement_events["Movement Week Start"] = (
+        movement_events["Movement Time"]
+        .dt.normalize()
+        - pd.to_timedelta(
+            movement_events["Movement Time"].dt.weekday,
+            unit="D"
+        )
+    )
+
+    movement_events["Movement Week"] = (
+        movement_events["Movement Week Start"].dt.strftime(
+            "%d %b %Y"
+        )
+        + " - "
+        + (
+            movement_events["Movement Week Start"]
+            + pd.Timedelta(days=6)
+        ).dt.strftime("%d %b %Y")
+    )
+
+    movement_events["Movement Day"] = (
+        movement_events["Movement Time"]
+        .dt.strftime("%d %b %Y")
+    )
+
+    return (
+        movement_events
+        .sort_values("Movement Time")
+        .reset_index(drop=True),
+        ""
+    )
+
+
+def movement_summary(data):
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                "Destination Queue",
+                "Moved Tickets",
+                "Closed",
+                "Open",
+                "Closed ≤24h",
+                "Closed >24h",
+                "24h Resolution %",
+                "Avg Hours After Move",
+            ]
+        )
+
+    rows = []
+
+    for group, g in data.groupby(
+        "Moved To Group",
+        dropna=False
+    ):
+        closed = int(g["Outcome"].eq("Closed").sum())
+        within = int(g["Closed ≤24h After Move"].sum())
+        after = int(g["Closed >24h After Move"].sum())
+
+        eligible = within + after
+
+        rows.append({
+            "Destination Queue": group,
+            "Moved Tickets": g["Ticket ID"].nunique(),
+            "Closed": closed,
+            "Open": int(g["Outcome"].eq("Open").sum()),
+            "Closed ≤24h": within,
+            "Closed >24h": after,
+            "24h Resolution %": round(
+                within / eligible * 100,
+                1
+            ) if eligible else 0.0,
+            "Avg Hours After Move": round(
+                g["Hours After Move"].mean(),
+                1
+            ) if g["Hours After Move"].notna().any() else 0.0,
+        })
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values("Moved Tickets", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def movement_period_summary(data, period_column):
+    if data.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    for period, g in data.groupby(
+        period_column,
+        dropna=False,
+        sort=False
+    ):
+        within = int(g["Closed ≤24h After Move"].sum())
+        after = int(g["Closed >24h After Move"].sum())
+        eligible = within + after
+
+        rows.append({
+            period_column: period,
+            "Moved Tickets": g["Ticket ID"].nunique(),
+            "Closed": int(g["Outcome"].eq("Closed").sum()),
+            "Open": int(g["Outcome"].eq("Open").sum()),
+            "Closed ≤24h": within,
+            "Closed >24h": after,
+            "24h Resolution %": round(
+                within / eligible * 100,
+                1
+            ) if eligible else 0.0,
+            "Avg Hours After Move": round(
+                g["Hours After Move"].mean(),
+                1
+            ) if g["Hours After Move"].notna().any() else 0.0,
+        })
+
+    return pd.DataFrame(rows)
+
+
+
 def apply_dashboard_filters(
     data,
     selected_month,
@@ -2355,8 +2730,13 @@ st.html(
 # ============================================================
 
 if "data" not in st.session_state:
-
     st.session_state.data = None
+
+if "movement_history" not in st.session_state:
+    st.session_state.movement_history = pd.DataFrame()
+
+if "movement_history_error" not in st.session_state:
+    st.session_state.movement_history_error = ""
 
 
 # ============================================================
@@ -2401,6 +2781,39 @@ paste_data = st.text_area(
 )
 
 
+st.markdown(
+    '<div class="section-header">TICKET MOVEMENT HISTORY (OPTIONAL BUT REQUIRED FOR ACTUAL MOVE TIME)</div>',
+    unsafe_allow_html=True
+)
+
+mh_col1, mh_col2 = st.columns([2, 1])
+
+with mh_col1:
+    movement_file = st.file_uploader(
+        "Upload ticket activity / group movement history",
+        type=["xlsx", "xls", "csv"],
+        key="movement_history_file",
+        help=(
+            "Use a history/activity export containing Ticket ID, movement/activity "
+            "time and destination group. From Group is preferred."
+        ),
+    )
+
+with mh_col2:
+    st.info(
+        "For exact SLA after movement, the history file must contain the "
+        "actual queue-change timestamp."
+    )
+
+movement_paste = st.text_area(
+    "Or paste movement history",
+    height=100,
+    placeholder=(
+        "Ticket ID\tActivity Time\tFrom Group\tTo Group"
+    ),
+    key="movement_history_paste",
+)
+
 load_button = st.button(
     "Load / Refresh Dashboard",
     type="primary",
@@ -2437,6 +2850,30 @@ if load_button:
 
             st.session_state.data = prepared
 
+            # Load actual movement history if supplied.
+            history_df = None
+
+            if movement_file is not None:
+                history_df = read_file(
+                    movement_file
+                )
+            elif movement_paste.strip():
+                history_df = read_paste(
+                    movement_paste
+                )
+
+            if history_df is not None:
+                movement_result, movement_error = prepare_movement_history(
+                    history_df,
+                    prepared
+                )
+
+                st.session_state.movement_history = movement_result
+                st.session_state.movement_history_error = movement_error
+            else:
+                st.session_state.movement_history = pd.DataFrame()
+                st.session_state.movement_history_error = ""
+
             st.success(
                 f"Successfully loaded {len(prepared):,} tickets."
             )
@@ -2468,6 +2905,16 @@ st.session_state.data = df
 # ============================================================
 
 cg_all, moved_all = split_current_group(df)
+
+movement_history = st.session_state.get(
+    "movement_history",
+    pd.DataFrame()
+)
+
+movement_history_error = st.session_state.get(
+    "movement_history_error",
+    ""
+)
 
 
 # ============================================================
@@ -2808,151 +3255,241 @@ st.caption(
 
 
 # ============================================================
-# TICKETS MOVED OUT OF CG HELPLINE
+# ACTUAL TICKET MOVEMENT FROM CG HELPLINE
 # ============================================================
 
 st.markdown(
-    '<div class="section-header">TICKETS MOVED OUT OF CG HELPLINE</div>',
+    '<div class="section-header">CG HELPLINE → OTHER QUEUE MOVEMENT & RESOLUTION</div>',
     unsafe_allow_html=True
 )
 
-moved_stats = get_stats(filtered_moved)
-moved_total = filtered_moved["Ticket ID"].nunique()
-
-mv1, mv2, mv3, mv4 = st.columns(4)
-
-with mv1:
-    show_kpi(
-        "MOVED TO OTHER GROUPS",
-        f"{moved_total:,}",
-        "orange"
-    )
-
-with mv2:
-    show_kpi(
-        "MOVED — CLOSED",
-        f"{moved_stats['closed']:,}",
-        "green"
-    )
-
-with mv3:
-    show_kpi(
-        "MOVED — OPEN",
-        f"{moved_stats['open']:,}",
-        "red"
-    )
-
-with mv4:
-    show_kpi(
-        "MOVED — CLOSED ≤24H",
-        f"{moved_stats['within']:,}",
-        "blue"
-    )
-
-mv5, mv6 = st.columns(2)
-
-with mv5:
-    show_kpi(
-        "MOVED — CLOSED >24H",
-        f"{moved_stats['after']:,}",
-        "orange"
-    )
-
-with mv6:
-    show_kpi(
-        "MOVED — 24H CLOSURE %",
-        f"{moved_stats['rate'] * 100:.1f}%",
-        "green"
-    )
-
 st.caption(
-    "Per your stated workflow, every ticket whose current Group is not "
-    "CG Helpline is treated as a ticket moved out of CG. This is a "
-    "current-state view; the raw snapshot does not contain historical "
-    "transfer timestamps."
+    "This section uses the ticket activity/history file to measure the "
+    "actual queue-change time. SLA is measured from the movement time, "
+    "not from original ticket creation."
 )
 
-moved_groups = moved_group_summary(filtered_moved)
+if movement_history_error:
+    st.warning(movement_history_error)
 
-if not moved_groups.empty:
+if movement_history.empty:
 
-    st.markdown("### Destination Group-wise Movement")
+    st.info(
+        "Upload the ticket activity/group movement history above to see "
+        "actual movement queue, movement time, ≤24h resolution, >24h resolution, "
+        "and time taken after movement."
+    )
 
-    mg1, mg2 = st.columns([1.1, 0.9])
+else:
 
-    with mg1:
+    mh = movement_history.copy()
+
+    # Apply the dashboard's Month / Week / Day / Issue filters using
+    # the ticket's original creation attributes where available.
+    if selected_month != "All" and "Created time" in mh.columns:
+        mh = mh[
+            pd.to_datetime(
+                mh["Created time"],
+                errors="coerce"
+            ).dt.strftime("%b %Y").eq(selected_month)
+        ]
+
+    if selected_week != "All" and "Created time" in mh.columns:
+        created = pd.to_datetime(
+            mh["Created time"],
+            errors="coerce"
+        )
+        week_start = (
+            created.dt.normalize()
+            - pd.to_timedelta(
+                created.dt.weekday,
+                unit="D"
+            )
+        )
+        week_label = (
+            week_start.dt.strftime("%d %b %Y")
+            + " - "
+            + (
+                week_start + pd.Timedelta(days=6)
+            ).dt.strftime("%d %b %Y")
+        )
+        mh = mh[week_label.eq(selected_week)]
+
+    if selected_day != "All" and "Created time" in mh.columns:
+        mh = mh[
+            pd.to_datetime(
+                mh["Created time"],
+                errors="coerce"
+            ).dt.strftime("%d %b %Y").eq(selected_day)
+        ]
+
+    if selected_issue != "All" and "Issue L1" in mh.columns:
+        mh = mh[mh["Issue L1"].eq(selected_issue)]
+
+    total_moved = mh["Ticket ID"].nunique()
+    closed_moved = int(mh["Outcome"].eq("Closed").sum())
+    open_moved = int(mh["Outcome"].eq("Open").sum())
+    within_move = int(mh["Closed ≤24h After Move"].sum())
+    after_move = int(mh["Closed >24h After Move"].sum())
+
+    eligible_move = within_move + after_move
+
+    avg_after_move = (
+        mh["Hours After Move"].mean()
+        if mh["Hours After Move"].notna().any()
+        else 0
+    )
+
+    rate_after_move = (
+        within_move / eligible_move * 100
+        if eligible_move
+        else 0
+    )
+
+    a1, a2, a3, a4 = st.columns(4)
+
+    with a1:
+        show_kpi(
+            "MOVED FROM CG",
+            f"{total_moved:,}",
+            "orange"
+        )
+
+    with a2:
+        show_kpi(
+            "MOVED — CLOSED",
+            f"{closed_moved:,}",
+            "green"
+        )
+
+    with a3:
+        show_kpi(
+            "MOVED — OPEN",
+            f"{open_moved:,}",
+            "red"
+        )
+
+    with a4:
+        show_kpi(
+            "RESOLVED ≤24H AFTER MOVE",
+            f"{within_move:,}",
+            "blue"
+        )
+
+    a5, a6, a7, a8 = st.columns(4)
+
+    with a5:
+        show_kpi(
+            "RESOLVED >24H AFTER MOVE",
+            f"{after_move:,}",
+            "orange"
+        )
+
+    with a6:
+        show_kpi(
+            "24H RESOLUTION AFTER MOVE",
+            f"{rate_after_move:.1f}%",
+            "green"
+        )
+
+    with a7:
+        show_kpi(
+            "AVG HOURS AFTER MOVE",
+            f"{avg_after_move:.1f}",
+            "blue"
+        )
+
+    with a8:
+        show_kpi(
+            "DESTINATION QUEUES",
+            f"{mh['Moved To Group'].nunique():,}",
+            "orange"
+        )
+
+    st.markdown("### Destination Queue-wise Movement")
+
+    queue_summary = movement_summary(mh)
+
+    if not queue_summary.empty:
         st.dataframe(
-            moved_groups,
+            queue_summary,
             use_container_width=True,
             hide_index=True
         )
 
-    with mg2:
-        import plotly.express as px
+    st.markdown("### Movement → Resolution: Month-wise")
 
-        fig_moved = px.bar(
-            moved_groups.sort_values("Moved Tickets"),
-            x="Moved Tickets",
-            y="Destination Group",
-            orientation="h",
-            text="Moved Tickets",
-            title="Tickets Moved to Other Groups"
-        )
-
-        fig_moved.update_layout(
-            height=360,
-            margin=dict(
-                l=10,
-                r=10,
-                t=50,
-                b=10
-            )
-        )
-
-        st.plotly_chart(
-            fig_moved,
-            use_container_width=True
-        )
-
-
-st.markdown("### Moved Tickets — Month-wise")
-
-moved_month = moved_period_summary(
-    filtered_moved,
-    "Month"
-)
-
-if not moved_month.empty:
-    st.dataframe(
-        moved_month,
-        use_container_width=True,
-        hide_index=True
+    month_movement = movement_period_summary(
+        mh,
+        "Movement Month"
     )
 
-st.markdown("### Moved Tickets — Week-wise")
+    if not month_movement.empty:
+        st.dataframe(
+            month_movement,
+            use_container_width=True,
+            hide_index=True
+        )
 
-moved_week = moved_period_summary(
-    filtered_moved,
-    "Week"
-)
+    st.markdown("### Movement → Resolution: Week-wise")
 
-if not moved_week.empty:
-    st.dataframe(
-        moved_week,
-        use_container_width=True,
-        hide_index=True
+    week_movement = movement_period_summary(
+        mh,
+        "Movement Week"
     )
 
-st.markdown("### Moved Tickets — Day-wise")
+    if not week_movement.empty:
+        st.dataframe(
+            week_movement,
+            use_container_width=True,
+            hide_index=True
+        )
 
-moved_day = moved_period_summary(
-    filtered_moved,
-    "Day"
-)
+    st.markdown("### Movement → Resolution: Day-wise")
 
-if not moved_day.empty:
+    day_movement = movement_period_summary(
+        mh,
+        "Movement Day"
+    )
+
+    if not day_movement.empty:
+        st.dataframe(
+            day_movement,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.markdown("### Ticket-level Movement Details")
+
+    detail_columns = [
+        "Ticket ID",
+        "Moved From",
+        "Moved To Group",
+        "Movement Time",
+        "Outcome",
+        "Resolution Time",
+        "Hours After Move",
+        "Closed ≤24h After Move",
+        "Closed >24h After Move",
+        "Issue L1",
+        "Issue L2",
+        "Subject",
+    ]
+
+    detail_columns = [
+        c for c in detail_columns
+        if c in mh.columns
+    ]
+
+    detail = mh[detail_columns].copy()
+
+    if "Hours After Move" in detail.columns:
+        detail["Hours After Move"] = detail[
+            "Hours After Move"
+        ].round(1)
+
     st.dataframe(
-        moved_day,
+        detail,
         use_container_width=True,
         hide_index=True
     )
