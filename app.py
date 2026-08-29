@@ -486,6 +486,10 @@ def prepare_data(raw):
     # SLA BUCKET
     # --------------------------------------------------------
 
+    # Closed-ticket population used throughout the dashboard.
+    # Resolution-time validity is handled in Closure Hours above.
+    closed_mask = df["Status Clean"].eq("CLOSED")
+
     df["SLA"] = "Open"
 
     df.loc[
