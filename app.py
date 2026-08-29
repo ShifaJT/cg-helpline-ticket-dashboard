@@ -524,13 +524,45 @@ def ensure_analysis_columns(data):
 
 def add_fcr_fields(data):
     """
-    Operational FCR calculation.
+    FCR proxy based on the information available in the ticket dump.
 
-    FCR proxy = CLOSED + Call Type is populated + Inbound Count <= 1.
-    This avoids treating identical Created/Closed timestamps as FCR.
+    The raw dump does not contain a first-contact-resolution flag or a
+    complete contact-history field. Therefore:
+      FCR = CLOSED + Created date == Closed date.
+
+    This is a SAME-DAY FCR PROXY, not a proven call-history FCR.
+    It is intentionally transparent so the dashboard never reports a
+    misleading zero simply because Call Type/Inbound Count are blank.
     """
     x = data.copy()
 
+    if "Created time" not in x.columns:
+        x["Created time"] = pd.NaT
+
+    if "Closed time" not in x.columns:
+        x["Closed time"] = pd.NaT
+
+    closed = x["Status Clean"].eq("CLOSED")
+
+    valid_times = (
+        x["Created time"].notna()
+        & x["Closed time"].notna()
+    )
+
+    same_day = (
+        valid_times
+        & x["Created time"].dt.normalize().eq(
+            x["Closed time"].dt.normalize()
+        )
+    )
+
+    x["Same Day Resolution"] = closed & same_day
+
+    # Operational FCR proxy:
+    # ticket was raised and resolved during the same calendar day.
+    x["FCR"] = x["Same Day Resolution"]
+
+    # Keep these fields for visibility/diagnostics.
     if "Call Type" not in x.columns:
         x["Call Type"] = ""
 
@@ -549,24 +581,6 @@ def add_fcr_fields(data):
         errors="coerce"
     )
 
-    closed = x["Status Clean"].eq("CLOSED")
-
-    x["FCR"] = (
-        closed
-        & x["Call Type Clean"].ne("")
-        & x["Inbound Count Num"].notna()
-        & x["Inbound Count Num"].le(1)
-    )
-
-    x["Same Day Resolution"] = (
-        closed
-        & x["Created time"].notna()
-        & x["Closed time"].notna()
-        & x["Created time"].dt.normalize().eq(
-            x["Closed time"].dt.normalize()
-        )
-    )
-
     return x
 
 
@@ -582,14 +596,16 @@ def fcr_stats(data):
 
     x = add_fcr_fields(data)
 
-    eligible = (
-        x["Status Clean"].eq("CLOSED")
-        & x["Call Type Clean"].ne("")
-        & x["Inbound Count Num"].notna()
+    closed = x["Status Clean"].eq("CLOSED")
+    valid_closed = (
+        closed
+        & x["Created time"].notna()
+        & x["Closed time"].notna()
     )
 
-    eligible_count = int(eligible.sum())
+    eligible_count = int(valid_closed.sum())
     fcr_count = int(x["FCR"].sum())
+    same_day_count = int(x["Same Day Resolution"].sum())
 
     return {
         "fcr": fcr_count,
@@ -598,13 +614,13 @@ def fcr_stats(data):
             fcr_count / eligible_count * 100
             if eligible_count else 0.0
         ),
-        "same_day": int(x["Same Day Resolution"].sum()),
+        "same_day": same_day_count,
         "coverage": (
-            x["Call Type Clean"].ne("").sum()
-            / len(x) * 100
-            if len(x) else 0.0
+            valid_closed.sum() / closed.sum() * 100
+            if closed.sum() else 0.0
         ),
     }
+
 
 
 def fcr_period_summary(data, period_column):
@@ -2639,14 +2655,10 @@ st.caption(
     "The raw export does not contain a dedicated FCR flag/history."
 )
 
-if fcr["coverage"] == 0:
+if fcr["eligible"] == 0:
     st.warning(
-        "Call Type is blank for this selection, so call-based FCR cannot be measured."
-    )
-elif fcr["eligible"] == 0:
-    st.warning(
-        "No closed tickets have both Call Type and a valid Inbound Count, "
-        "so FCR cannot be calculated for this selection."
+        "No closed tickets have valid Created and Closed timestamps, "
+        "so the FCR proxy cannot be calculated."
     )
 
 fcr_week = fcr_period_summary(filtered, "Week")
