@@ -465,6 +465,131 @@ def prepare_data(raw):
     return df
 
 
+
+def ensure_analysis_columns(data):
+    """
+    Backward-compatible safety layer for Streamlit session state.
+
+    If the app code is updated while the browser session still contains
+    an older prepared dataframe, rebuild the internal Issue L1/L2 fields
+    from the actual raw columns instead of returning an empty table.
+    """
+    if data is None:
+        return data
+
+    data = data.copy()
+
+    # Recreate Issue L1 from the raw field if necessary.
+    if "Issue L1" not in data.columns:
+        if "Issue Type - L1" in data.columns:
+            data["Issue L1"] = (
+                data["Issue Type - L1"]
+                .fillna("Unspecified")
+                .astype(str)
+                .str.strip()
+            )
+        else:
+            data["Issue L1"] = "Unspecified"
+
+    data.loc[
+        data["Issue L1"].eq(""),
+        "Issue L1"
+    ] = "Unspecified"
+
+    # Recreate Issue L2 from the raw field if necessary.
+    if "Issue L2" not in data.columns:
+        if "Issue Type - L2" in data.columns:
+            data["Issue L2"] = (
+                data["Issue Type - L2"]
+                .fillna("Unspecified")
+                .astype(str)
+                .str.strip()
+            )
+        else:
+            data["Issue L2"] = "Unspecified"
+
+    data.loc[
+        data["Issue L2"].eq(""),
+        "Issue L2"
+    ] = "Unspecified"
+
+    return data
+
+
+
+
+def same_call_stats(data):
+    """
+    Identify tickets resolved on the same timestamp they were raised.
+
+    Same-call = Created time and Closed time are both valid and their
+    timestamps are exactly equal. This is intentionally stricter than
+    "same day"; a ticket raised at 10:15 and closed at 14:30 is not
+    counted as same-call.
+    """
+    if data is None or data.empty:
+        return {
+            "same_call": 0,
+            "same_day": 0,
+            "closed_within_1hr": 0,
+            "closed_total": 0,
+            "same_call_rate": 0.0,
+            "same_day_rate": 0.0,
+        }
+
+    x = data.copy()
+
+    created = pd.to_datetime(
+        x["Created time"],
+        errors="coerce"
+    )
+    closed = pd.to_datetime(
+        x["Closed time"],
+        errors="coerce"
+    )
+
+    valid = created.notna() & closed.notna()
+
+    same_call = (
+        valid
+        & created.eq(closed)
+    )
+
+    same_day = (
+        valid
+        & created.dt.normalize().eq(
+            closed.dt.normalize()
+        )
+    )
+
+    within_1hr = (
+        valid
+        & ((closed - created).dt.total_seconds() >= 0)
+        & ((closed - created).dt.total_seconds() <= 3600)
+    )
+
+    closed_total = int(valid.sum())
+    same_call_count = int(same_call.sum())
+    same_day_count = int(same_day.sum())
+    within_1hr_count = int(within_1hr.sum())
+
+    return {
+        "same_call": same_call_count,
+        "same_day": same_day_count,
+        "closed_within_1hr": within_1hr_count,
+        "closed_total": closed_total,
+        "same_call_rate": (
+            same_call_count / closed_total * 100
+            if closed_total else 0
+        ),
+        "same_day_rate": (
+            same_day_count / closed_total * 100
+            if closed_total else 0
+        ),
+    }
+
+
+
 def get_stats(data):
 
     if data.empty:
@@ -638,7 +763,7 @@ def issue_analysis(data):
     if data.empty:
         return pd.DataFrame(columns=cols)
 
-    x = data.copy()
+    x = ensure_analysis_columns(data)
 
     x["Issue L1 Analysis"] = (
         x["Issue Type - L1"]
@@ -710,6 +835,8 @@ def issue_contributors(data):
 
     if data.empty:
         return empty, empty, empty, empty
+
+    data = ensure_analysis_columns(data)
 
     def contributor_table(df, column):
         if column not in df.columns:
@@ -905,6 +1032,7 @@ def make_email_summary(
 
     s = get_stats(data)
     g = requested_group_counts(data)
+    sc = same_call_stats(data)
 
     scope = filter_description(
         month,
@@ -1551,6 +1679,79 @@ def build_excel_report(
     format_table(group_ws, 4, group_end_row, 1, group_end_col, "GroupAnalysisTable")
     auto_width(group_ws, max_width=32)
 
+# --------------------------------------------------------
+    # SAME-CALL ANALYSIS
+    # --------------------------------------------------------
+
+    same_call_ws = wb.create_sheet(
+        "Same Call Analysis"
+    )
+
+    style_title(
+        same_call_ws,
+        "SAME-CALL / SAME-DAY RESOLUTION",
+        filter_text,
+        end_col=3
+    )
+
+    sc_xl = same_call_stats(filtered_data)
+
+    same_call_rows = pd.DataFrame([
+        {
+            "Metric": "Resolved Same Call",
+            "Tickets": sc_xl["same_call"],
+            "% of Closed": round(sc_xl["same_call_rate"], 1),
+        },
+        {
+            "Metric": "Resolved Same Day",
+            "Tickets": sc_xl["same_day"],
+            "% of Closed": round(sc_xl["same_day_rate"], 1),
+        },
+        {
+            "Metric": "Closed Within 1 Hour",
+            "Tickets": sc_xl["closed_within_1hr"],
+            "% of Closed": round(
+                sc_xl["closed_within_1hr"] /
+                sc_xl["closed_total"] * 100,
+                1
+            ) if sc_xl["closed_total"] else 0,
+        },
+        {
+            "Metric": "Total Closed with Valid Timestamps",
+            "Tickets": sc_xl["closed_total"],
+            "% of Closed": 100.0 if sc_xl["closed_total"] else 0,
+        },
+    ])
+
+    sc_end_row, sc_end_col = add_dataframe(
+        same_call_ws,
+        same_call_rows,
+        4
+    )
+
+    format_table(
+        same_call_ws,
+        4,
+        sc_end_row,
+        1,
+        sc_end_col,
+        "SameCallTable"
+    )
+
+    auto_width(
+        same_call_ws,
+        max_width=34
+    )
+
+    same_call_ws["A10"] = (
+        "Definition: Same Call = Created time exactly equals Closed time. "
+        "Same Day = Created and Closed dates are the same."
+    )
+    same_call_ws["A10"].alignment = Alignment(
+        wrap_text=True
+    )
+    same_call_ws.merge_cells("A10:C11")
+
     # --------------------------------------------------------
     # ISSUE L1 & L2 ANALYSIS
     # --------------------------------------------------------
@@ -2129,7 +2330,13 @@ if st.session_state.data is None:
     st.stop()
 
 
-df = st.session_state.data
+df = ensure_analysis_columns(
+    st.session_state.data
+)
+
+# Store the repaired dataframe back into the session so the same
+# raw upload works even after the app code has been updated.
+st.session_state.data = df
 
 
 # ============================================================
@@ -2445,6 +2652,20 @@ st.markdown(
 )
 
 issue_detail = issue_analysis(filtered)
+
+if "Issue Type - L2" in filtered.columns:
+    l2_source = (
+        filtered["Issue Type - L2"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    if l2_source.eq("").all():
+        st.warning(
+            "Issue Type - L2 is blank in the selected raw data. "
+            "The dashboard cannot create an L2 breakdown unless the raw dump contains L2 values."
+        )
 
 if not issue_detail.empty:
 
