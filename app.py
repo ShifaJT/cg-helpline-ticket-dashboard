@@ -687,45 +687,67 @@ def issue_analysis(data):
 
 def issue_contributors(data):
     """
-    Returns top and low contributing Issue L1 categories.
-    Low contributing = categories with the smallest ticket counts.
+    Returns separate Top/Low contributor tables for Issue Type L1 and L2.
     """
+    empty = pd.DataFrame(
+        columns=["Issue Type", "Tickets", "% of Tickets"]
+    )
+
     if data.empty:
-        empty = pd.DataFrame(
-            columns=[
-                "Issue Type - L1",
-                "Tickets",
-                "% of Tickets"
-            ]
+        return empty, empty, empty, empty
+
+    def contributor_table(df, column):
+        x = (
+            df.groupby(column)["Ticket ID"]
+            .nunique()
+            .reset_index(name="Tickets")
+            .rename(columns={column: "Issue Type"})
         )
-        return empty, empty
 
-    x = (
-        data.groupby("Issue L1")["Ticket ID"]
-        .nunique()
-        .reset_index(name="Tickets")
-        .rename(columns={"Issue L1": "Issue Type - L1"})
+        x["Issue Type"] = (
+            x["Issue Type"]
+            .fillna("Unspecified")
+            .astype(str)
+            .str.strip()
+        )
+
+        x.loc[
+            x["Issue Type"].eq(""),
+            "Issue Type"
+        ] = "Unspecified"
+
+        total = x["Tickets"].sum()
+
+        x["% of Tickets"] = (
+            (x["Tickets"] / total * 100).round(1)
+            if total
+            else 0
+        )
+
+        top = x.sort_values(
+            ["Tickets", "Issue Type"],
+            ascending=[False, True]
+        ).head(10).reset_index(drop=True)
+
+        low = x.sort_values(
+            ["Tickets", "Issue Type"],
+            ascending=[True, True]
+        ).head(10).reset_index(drop=True)
+
+        return top, low
+
+    l1_top, l1_low = contributor_table(
+        data,
+        "Issue L1"
     )
 
-    total = x["Tickets"].sum()
-
-    x["% of Tickets"] = (
-        (x["Tickets"] / total * 100).round(1)
-        if total
-        else 0
+    l2_top, l2_low = contributor_table(
+        data,
+        "Issue L2"
     )
 
-    top = x.sort_values(
-        ["Tickets", "Issue Type - L1"],
-        ascending=[False, True]
-    ).head(10)
+    return l1_top, l1_low, l2_top, l2_low
 
-    low = x.sort_values(
-        ["Tickets", "Issue Type - L1"],
-        ascending=[True, True]
-    ).head(10)
-
-    return top.reset_index(drop=True), low.reset_index(drop=True)
 
 
 def group_period_analysis(data, period_column):
@@ -1557,66 +1579,115 @@ def build_excel_report(
         end_col=6
     )
 
-    top_xl, low_xl = issue_contributors(
+    l1_top_xl, l1_low_xl, l2_top_xl, l2_low_xl = issue_contributors(
         filtered_data
     )
 
-    contrib_ws["A4"] = "TOP CONTRIBUTING ISSUE TYPES"
-    contrib_ws["A4"].font = Font(
-        bold=True,
-        color=white
-    )
-    contrib_ws["A4"].fill = PatternFill(
-        "solid",
-        fgColor=green
-    )
+    # L1 top
+    contrib_ws["A4"] = "TOP CONTRIBUTING — ISSUE TYPE L1"
+    contrib_ws["A4"].font = Font(bold=True, color=white)
+    contrib_ws["A4"].fill = PatternFill("solid", fgColor=green)
 
-    top_end_row, top_end_col = add_dataframe(
+    l1_top_end_row, l1_top_end_col = add_dataframe(
         contrib_ws,
-        top_xl,
+        l1_top_xl,
         5
     )
 
     format_table(
         contrib_ws,
         5,
-        top_end_row,
+        l1_top_end_row,
         1,
-        top_end_col,
-        "TopIssuesTable"
+        l1_top_end_col,
+        "TopL1IssuesTable"
     )
 
-    start_low = top_end_row + 3
+    # L1 low
+    start_l1_low = l1_top_end_row + 3
 
     contrib_ws.cell(
-        start_low,
+        start_l1_low,
         1,
-        "LOW CONTRIBUTING ISSUE TYPES"
-    ).font = Font(
-        bold=True,
-        color=white
-    )
+        "LOW CONTRIBUTING — ISSUE TYPE L1"
+    ).font = Font(bold=True, color=white)
+
     contrib_ws.cell(
-        start_low,
+        start_l1_low,
         1
-    ).fill = PatternFill(
-        "solid",
-        fgColor=orange
-    )
+    ).fill = PatternFill("solid", fgColor=orange)
 
-    low_end_row, low_end_col = add_dataframe(
+    l1_low_end_row, l1_low_end_col = add_dataframe(
         contrib_ws,
-        low_xl,
-        start_low + 1
+        l1_low_xl,
+        start_l1_low + 1
     )
 
     format_table(
         contrib_ws,
-        start_low + 1,
-        low_end_row,
+        start_l1_low + 1,
+        l1_low_end_row,
         1,
-        low_end_col,
-        "LowIssuesTable"
+        l1_low_end_col,
+        "LowL1IssuesTable"
+    )
+
+    # L2 top
+    start_l2_top = l1_low_end_row + 3
+
+    contrib_ws.cell(
+        start_l2_top,
+        1,
+        "TOP CONTRIBUTING — ISSUE TYPE L2"
+    ).font = Font(bold=True, color=white)
+
+    contrib_ws.cell(
+        start_l2_top,
+        1
+    ).fill = PatternFill("solid", fgColor=green)
+
+    l2_top_end_row, l2_top_end_col = add_dataframe(
+        contrib_ws,
+        l2_top_xl,
+        start_l2_top + 1
+    )
+
+    format_table(
+        contrib_ws,
+        start_l2_top + 1,
+        l2_top_end_row,
+        1,
+        l2_top_end_col,
+        "TopL2IssuesTable"
+    )
+
+    # L2 low
+    start_l2_low = l2_top_end_row + 3
+
+    contrib_ws.cell(
+        start_l2_low,
+        1,
+        "LOW CONTRIBUTING — ISSUE TYPE L2"
+    ).font = Font(bold=True, color=white)
+
+    contrib_ws.cell(
+        start_l2_low,
+        1
+    ).fill = PatternFill("solid", fgColor=orange)
+
+    l2_low_end_row, l2_low_end_col = add_dataframe(
+        contrib_ws,
+        l2_low_xl,
+        start_l2_low + 1
+    )
+
+    format_table(
+        contrib_ws,
+        start_l2_low + 1,
+        l2_low_end_row,
+        1,
+        l2_low_end_col,
+        "LowL2IssuesTable"
     )
 
     auto_width(
@@ -2361,7 +2432,7 @@ if not issue_detail.empty:
         hide_index=True
     )
 
-    top_issues, low_issues = issue_contributors(
+    l1_top, l1_low, l2_top, l2_low = issue_contributors(
         filtered
     )
 
@@ -2370,32 +2441,38 @@ if not issue_detail.empty:
         unsafe_allow_html=True
     )
 
-    ic1, ic2 = st.columns(2)
+    # -------------------------
+    # L1 VIEW
+    # -------------------------
 
-    with ic1:
+    st.markdown("### Issue Type - L1")
 
-        st.markdown("**🔥 Top contributing Issue Types - L1**")
+    l1c1, l1c2 = st.columns(2)
+
+    with l1c1:
+
+        st.markdown("**Top contributing L1 issues**")
 
         st.dataframe(
-            top_issues,
+            l1_top,
             use_container_width=True,
             hide_index=True
         )
 
-        if not top_issues.empty:
+        if not l1_top.empty:
 
             import plotly.express as px
 
-            fig_top = px.bar(
-                top_issues.sort_values("Tickets"),
+            fig_l1_top = px.bar(
+                l1_top.sort_values("Tickets"),
                 x="Tickets",
-                y="Issue Type - L1",
+                y="Issue Type",
                 orientation="h",
                 text="Tickets",
-                title="Top Contributors"
+                title="Top L1 Contributors"
             )
 
-            fig_top.update_layout(
+            fig_l1_top.update_layout(
                 height=380,
                 margin=dict(
                     l=10,
@@ -2406,34 +2483,34 @@ if not issue_detail.empty:
             )
 
             st.plotly_chart(
-                fig_top,
+                fig_l1_top,
                 use_container_width=True
             )
 
-    with ic2:
+    with l1c2:
 
-        st.markdown("**Low contributing Issue Types - L1**")
+        st.markdown("**Low contributing L1 issues**")
 
         st.dataframe(
-            low_issues,
+            l1_low,
             use_container_width=True,
             hide_index=True
         )
 
-        if not low_issues.empty:
+        if not l1_low.empty:
 
             import plotly.express as px
 
-            fig_low = px.bar(
-                low_issues.sort_values("Tickets"),
+            fig_l1_low = px.bar(
+                l1_low.sort_values("Tickets"),
                 x="Tickets",
-                y="Issue Type - L1",
+                y="Issue Type",
                 orientation="h",
                 text="Tickets",
-                title="Low Contributors"
+                title="Low L1 Contributors"
             )
 
-            fig_low.update_layout(
+            fig_l1_low.update_layout(
                 height=380,
                 margin=dict(
                     l=10,
@@ -2444,7 +2521,91 @@ if not issue_detail.empty:
             )
 
             st.plotly_chart(
-                fig_low,
+                fig_l1_low,
+                use_container_width=True
+            )
+
+    # -------------------------
+    # L2 VIEW
+    # -------------------------
+
+    st.markdown("### Issue Type - L2")
+
+    l2c1, l2c2 = st.columns(2)
+
+    with l2c1:
+
+        st.markdown("**Top contributing L2 issues**")
+
+        st.dataframe(
+            l2_top,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if not l2_top.empty:
+
+            import plotly.express as px
+
+            fig_l2_top = px.bar(
+                l2_top.sort_values("Tickets"),
+                x="Tickets",
+                y="Issue Type",
+                orientation="h",
+                text="Tickets",
+                title="Top L2 Contributors"
+            )
+
+            fig_l2_top.update_layout(
+                height=420,
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=50,
+                    b=10
+                )
+            )
+
+            st.plotly_chart(
+                fig_l2_top,
+                use_container_width=True
+            )
+
+    with l2c2:
+
+        st.markdown("**Low contributing L2 issues**")
+
+        st.dataframe(
+            l2_low,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if not l2_low.empty:
+
+            import plotly.express as px
+
+            fig_l2_low = px.bar(
+                l2_low.sort_values("Tickets"),
+                x="Tickets",
+                y="Issue Type",
+                orientation="h",
+                text="Tickets",
+                title="Low L2 Contributors"
+            )
+
+            fig_l2_low.update_layout(
+                height=420,
+                margin=dict(
+                    l=10,
+                    r=10,
+                    t=50,
+                    b=10
+                )
+            )
+
+            st.plotly_chart(
+                fig_l2_low,
                 use_container_width=True
             )
 
@@ -2757,8 +2918,8 @@ st.markdown(
 
 st.write(
     "Download a professionally formatted Excel report containing the "
-    "original raw data, filtered data, KPI dashboard, issue analysis, "
-    "monthly/weekly/daily analysis and email-ready findings."
+    "original raw data, filterable analysis, KPI dashboard, L1/L2 issue "
+    "breakup, top/low contributors, group analysis, and monthly/weekly/daily views."
 )
 
 excel_filter_text = filter_description(
@@ -2766,6 +2927,13 @@ excel_filter_text = filter_description(
     selected_week,
     selected_day,
     selected_issue
+)
+
+# Legacy L1 summary used by the Excel dashboard sheet.
+# The detailed L1 + L2 analysis is also exported separately.
+issue_summary = summary_by_group(
+    filtered,
+    "Issue L1"
 )
 
 excel_bytes = build_excel_report(
@@ -2792,7 +2960,7 @@ st.download_button(
 
 st.caption(
     "The Excel report keeps the raw export on a separate Raw Data sheet "
-    "and adds analysis sheets without changing the original raw columns."
+    "and adds filterable analysis sheets without changing the original raw columns."
 )
 
 
