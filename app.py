@@ -2468,7 +2468,7 @@ st.session_state.data = df
 # ============================================================
 
 # MAIN DASHBOARD = ONLY CURRENT CG HELPLINE GROUP
-# OTHER GROUPS = CURRENTLY WITH OTHER QUEUE COUNT
+# OTHER GROUPS = CURRENTLY WITH DESTINATION QUEUES
 if "Group" in df.columns:
     df["_Group Clean"] = (
         df["Group"]
@@ -2828,11 +2828,11 @@ st.caption(
 
 
 # ============================================================
-# CURRENTLY IN OTHER / L3 GROUPS
+# CURRENTLY IN OTHER GROUPS
 # ============================================================
 
 
-st.markdown("### CURRENT GROUP DISTRIBUTION")
+st.markdown("### CURRENT GROUP DISTRIBUTION — RAW GROUP COLUMN")
 
 group_distribution = (
     df.groupby("_Group Clean")["Ticket ID"]
@@ -2850,15 +2850,16 @@ st.dataframe(
 )
 
 st.markdown(
-    '<div class="section-header">TICKETS CURRENTLY IN OTHER QUEUES</div>',
+    '<div class="section-header">CURRENT QUEUE MOVEMENT VIEW</div>',
     unsafe_allow_html=True
 )
 
 st.caption(
     "This section uses ONLY the raw Group column. "
-    "Any ticket whose current Group is not CG Helpline is shown here. "
-    "≤24h / >24h is measured from ticket creation because the raw dump "
-    "does not contain a group-movement timestamp."
+    "The main dashboard contains only Group = CG Helpline. "
+    "Every ticket whose current Group is different from CG Helpline is "
+    "shown here as being in an Other Queue. "
+    "≤24h / >24h is measured from ticket creation."
 )
 
 other = filtered_other_groups.copy()
@@ -2883,7 +2884,7 @@ o1, o2, o3, o4 = st.columns(4)
 
 with o1:
     show_kpi(
-        "OTHER / L3 TICKETS",
+        "TICKETS IN OTHER QUEUES",
         f"{other_total:,}",
         "orange"
     )
@@ -2927,7 +2928,7 @@ with o6:
 
 with o7:
     show_kpi(
-        "OTHER QUEUE COUNT",
+        "DESTINATION QUEUES",
         f"{other['_Group Clean'].nunique():,}"
         if "_Group Clean" in other.columns
         else "0",
@@ -2936,7 +2937,7 @@ with o7:
 
 st.caption(
     "Queue Count = number of distinct non-CG Helpline values in the raw Group column. "
-    "It is NOT the number of tickets. The ticket count is shown in OTHER / L3 TICKETS."
+    "It is NOT the number of tickets. The ticket count is shown in TICKETS IN OTHER QUEUES."
 )
 
 st.markdown("### OTHER QUEUE-WISE BREAKDOWN")
@@ -2952,7 +2953,7 @@ if not other.empty:
         s = get_stats(g)
 
         queue_rows.append({
-            "Queue / Group": queue,
+            "Current Queue": queue,
             "Tickets": g["Ticket ID"].nunique(),
             "Closed": s["closed"],
             "Open": s["open"],
@@ -2988,7 +2989,7 @@ if not other.empty:
         fig_queue = px.bar(
             queue_df.sort_values("Tickets"),
             x="Tickets",
-            y="Queue / Group",
+            y="Current Queue",
             orientation="h",
             text="Tickets",
             title="Tickets Currently in Other Queues"
@@ -3011,10 +3012,10 @@ if not other.empty:
 
 else:
     st.info(
-        "No tickets are currently in another/L3 group for the selected filters."
+        "No tickets are currently in an Other Queue for the selected filters."
     )
 
-st.markdown("### Other / L3 Groups — Month-wise")
+st.markdown("### Other Queues — Month-wise")
 
 other_month = summary_by_group(
     other,
@@ -3028,7 +3029,7 @@ if not other_month.empty:
         hide_index=True
     )
 
-st.markdown("### Other / L3 Groups — Week-wise")
+st.markdown("### Other Queues — Week-wise")
 
 other_week = summary_by_group(
     other,
@@ -3042,7 +3043,7 @@ if not other_week.empty:
         hide_index=True
     )
 
-st.markdown("### Other / L3 Groups — Day-wise")
+st.markdown("### Other Queues — Day-wise")
 
 other_day = summary_by_group(
     other,
