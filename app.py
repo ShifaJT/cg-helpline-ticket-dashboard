@@ -138,6 +138,7 @@ REQUIRED_COLUMNS = [
     "Created time",
     "Closed time",
     "Issue Type - L1",
+    "Issue Type - L2",
 ]
 
 
@@ -294,6 +295,20 @@ def prepare_data(raw):
     df.loc[
         df["Issue L1"] == "",
         "Issue L1"
+    ] = "Unspecified"
+
+    # Issue Type - L2 is kept exactly as supplied in Raw Data,
+    # while Issue L2 is a clean internal field used for analysis.
+    df["Issue L2"] = (
+        df["Issue Type - L2"]
+        .fillna("Unspecified")
+        .astype(str)
+        .str.strip()
+    )
+
+    df.loc[
+        df["Issue L2"] == "",
+        "Issue L2"
     ] = "Unspecified"
 
     # --------------------------------------------------------
@@ -697,6 +712,12 @@ def issue_contributors(data):
         return empty, empty, empty, empty
 
     def contributor_table(df, column):
+        if column not in df.columns:
+            return (
+                pd.DataFrame(columns=["Issue Type", "Tickets", "% of Tickets"]),
+                pd.DataFrame(columns=["Issue Type", "Tickets", "% of Tickets"])
+            )
+
         x = (
             df.groupby(column)["Ticket ID"]
             .nunique()
@@ -1402,6 +1423,7 @@ def build_excel_report(
     internal_columns = [
         "Status Clean",
         "Issue L1",
+        "Issue L2",
         "Created Date",
         "Month",
         "Week Start",
