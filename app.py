@@ -674,54 +674,21 @@ def format_hms(hours):
 
 
 
-def actual_percentile_ticket_time(series, percentage):
-    """
-    User-defined percentile logic.
+def excel_percentile(series, percentile):
+    """Excel PERCENTILE.INC-style percentile using linear interpolation."""
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    values = values[values >= 0]
 
-    Sort valid closed-ticket resolution times from LOWEST to HIGHEST,
-    calculate the percentage position, and return the ACTUAL ticket
-    at that position.
+    if values.empty:
+        return 0.0
 
-    Example with 10 tickets:
-        90% -> 9th ticket
-        95% -> 9th ticket
-        99% -> 9th ticket
-
-    No interpolation and no averaging.
-    """
-
-    values = (
-        pd.to_numeric(series, errors="coerce")
-        .dropna()
+    return float(
+        np.percentile(
+            values.to_numpy(dtype=float),
+            percentile * 100,
+            method="linear"
+        )
     )
-
-    values = values[
-        values >= 0
-    ].sort_values(
-        ascending=True
-    ).reset_index(drop=True)
-
-    total = len(values)
-
-    if total == 0:
-        return 0.0, 0
-
-    # User's rule:
-    # position = floor(total tickets × percentage)
-    position = int(
-        np.floor(total * percentage)
-    )
-
-    position = max(
-        1,
-        min(position, total)
-    )
-
-    actual_time = float(
-        values.iloc[position - 1]
-    )
-
-    return actual_time, position
 
 
 def get_stats(data):
@@ -745,55 +712,33 @@ def get_stats(data):
             "old_open": 0,
         }
 
-    closed = data[
-        data["Status Clean"].eq("CLOSED")
-    ]
-
-    opened = data[
-        data["Status Clean"].eq("OPEN")
-    ]
+    closed = data[data["Status Clean"].eq("CLOSED")]
+    opened = data[data["Status Clean"].eq("OPEN")]
 
     valid = closed[
         closed["Closure Hours"].notna()
-        &
-        (closed["Closure Hours"] >= 0)
+        & (closed["Closure Hours"] >= 0)
     ].copy()
 
-    within = valid[
-        valid["Closure Hours"] <= 24
-    ]
-
-    after = valid[
-        valid["Closure Hours"] > 24
-    ]
+    within = valid[valid["Closure Hours"] <= 24]
+    after = valid[valid["Closure Hours"] > 24]
 
     if not valid.empty:
 
-        avg_hours = float(
-            valid["Closure Hours"].mean()
-        )
+        avg_hours = float(valid["Closure Hours"].mean())
+        median_hours = float(valid["Closure Hours"].median())
 
-        median_hours = float(
-            valid["Closure Hours"].median()
-        )
+        # Match Excel's PERCENTILE.INC methodology.
+        p90_hours = excel_percentile(valid["Closure Hours"], 0.90)
+        p95_hours = excel_percentile(valid["Closure Hours"], 0.95)
+        p99_hours = excel_percentile(valid["Closure Hours"], 0.99)
 
-        p90_hours, p90_rank = actual_percentile_ticket_time(
-            valid["Closure Hours"],
-            0.90
-        )
-
-        p95_hours, p95_rank = actual_percentile_ticket_time(
-            valid["Closure Hours"],
-            0.95
-        )
-
-        p99_hours, p99_rank = actual_percentile_ticket_time(
-            valid["Closure Hours"],
-            0.99
-        )
+        n = len(valid)
+        p90_rank = int(np.ceil(n * 0.90))
+        p95_rank = int(np.ceil(n * 0.95))
+        p99_rank = int(np.ceil(n * 0.99))
 
     else:
-
         avg_hours = 0.0
         median_hours = 0.0
         p90_hours = 0.0
@@ -803,9 +748,7 @@ def get_stats(data):
         p95_rank = 0
         p99_rank = 0
 
-    old_open = opened[
-        opened["Open Age Hours"] > 72
-    ]
+    old_open = opened[opened["Open Age Hours"] > 72]
 
     return {
         "raised": len(data),
@@ -1752,8 +1695,11 @@ def build_excel_report(
         ("Closed ≤24h", s["within"], green),
         ("Closed >24h", s["after"], orange),
         ("24h Closure %", f"{s['rate'] * 100:.1f}%", green),
-        ("Avg Closure Hrs", f"{s['avg']:.2f}", blue),
+        ("Avg Closure Hrs", format_hms(s["avg"]), blue),
         ("Open >72h", s["old_open"], red),
+        ("90% Percentile Resolution", format_hms(s["p90"]), blue),
+        ("95% Percentile Resolution", format_hms(s["p95"]), orange),
+        ("99% Percentile Resolution", format_hms(s["p99"]), red),
     ]
 
     positions = [
@@ -1765,6 +1711,9 @@ def build_excel_report(
         (7, 3),
         (7, 5),
         (7, 7),
+        (10, 1),
+        (10, 4),
+        (10, 7),
     ]
 
     for (label, value, colour), (row, col) in zip(
@@ -1814,7 +1763,7 @@ def build_excel_report(
         )
 
     # Email findings on Dashboard
-    ws["A10"] = "IMPORTANT FINDINGS / EMAIL READY"
+    ws["A13"] = "IMPORTANT FINDINGS / EMAIL READY"
     ws["A10"].fill = PatternFill(
         "solid",
         fgColor=navy
@@ -1826,10 +1775,10 @@ def build_excel_report(
     )
 
     ws.merge_cells(
-        "A11:H23"
+        "A14:H26"
     )
 
-    email_cell = ws["A11"]
+    email_cell = ws["A14"]
     email_cell.value = email_text
     email_cell.alignment = Alignment(
         wrap_text=True,
@@ -1838,6 +1787,34 @@ def build_excel_report(
     email_cell.fill = PatternFill(
         "solid",
         fgColor="FFFFFF"
+    )
+
+    ws["A28"] = "RESOLUTION-TIME PERCENTILE LOGIC"
+    ws["A28"].fill = PatternFill(
+        "solid",
+        fgColor=navy
+    )
+    ws["A28"].font = Font(
+        color=white,
+        bold=True,
+        size=12
+    )
+
+    ws.merge_cells("A29:H31")
+    percentile_note = ws["A29"]
+    percentile_note.value = (
+        "90%, 95% and 99% are calculated from valid CLOSED CG Helpline "
+        "ticket resolution times using the Excel PERCENTILE.INC methodology. "
+        "The calculation is applied to the filtered closed-ticket population. "
+        "Resolution times are displayed as H:MM:SS."
+    )
+    percentile_note.alignment = Alignment(
+        wrap_text=True,
+        vertical="top"
+    )
+    percentile_note.fill = PatternFill(
+        "solid",
+        fgColor="F2F4F7"
     )
 
     ws.column_dimensions["A"].width = 18
@@ -1852,6 +1829,108 @@ def build_excel_report(
     # --------------------------------------------------------
     # RAW DATA
     # --------------------------------------------------------
+
+    # --------------------------------------------------------
+    # RESOLUTION TIME ANALYSIS
+    # --------------------------------------------------------
+    resolution_ws = wb.create_sheet("Resolution Analysis")
+
+    style_title(
+        resolution_ws,
+        "CG HELPLINE — RESOLUTION TIME ANALYSIS",
+        f"Scope: {filter_text}",
+        end_col=5
+    )
+
+    resolution_ws["A4"] = "Metric"
+    resolution_ws["B4"] = "Value"
+    resolution_ws["C4"] = "Definition"
+
+    style_header_row(
+        resolution_ws,
+        4,
+        1,
+        3
+    )
+
+    resolution_rows = [
+        (
+            "Closed Tickets",
+            s["closed"],
+            "Total closed CG Helpline tickets in the selected scope"
+        ),
+        (
+            "Average Closure Time",
+            format_hms(s["avg"]),
+            "Average of Calculated Resolution Time for valid closed tickets"
+        ),
+        (
+            "Median Closure Time",
+            format_hms(s["median"]),
+            "Median resolution time of valid closed tickets"
+        ),
+        (
+            "90% Percentile",
+            format_hms(s["p90"]),
+            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.90)"
+        ),
+        (
+            "95% Percentile",
+            format_hms(s["p95"]),
+            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.95)"
+        ),
+        (
+            "99% Percentile",
+            format_hms(s["p99"]),
+            "Excel PERCENTILE.INC(Calculated Resolution Time, 0.99)"
+        ),
+        (
+            "Closed ≤24h",
+            s["within"],
+            "Closed tickets resolved within 24 hours"
+        ),
+        (
+            "Closed >24h",
+            s["after"],
+            "Closed tickets taking more than 24 hours"
+        ),
+        (
+            "24h Closure %",
+            f"{s['rate'] * 100:.1f}%",
+            "Closed ≤24h divided by total closed tickets"
+        ),
+    ]
+
+    for r, row in enumerate(resolution_rows, start=5):
+        for c, value in enumerate(row, start=1):
+            resolution_ws.cell(r, c, value)
+
+    style_header_row(
+        resolution_ws,
+        4,
+        1,
+        3
+    )
+
+    for row in resolution_ws.iter_rows(
+        min_row=5,
+        max_row=4 + len(resolution_rows),
+        min_col=1,
+        max_col=3
+    ):
+        for cell in row:
+            cell.border = Border(
+                bottom=thin_grey
+            )
+            cell.alignment = Alignment(
+                vertical="top",
+                wrap_text=True
+            )
+
+    resolution_ws.column_dimensions["A"].width = 28
+    resolution_ws.column_dimensions["B"].width = 24
+    resolution_ws.column_dimensions["C"].width = 65
+    resolution_ws.freeze_panes = "A5"
 
     raw_ws = wb.create_sheet("Raw Data")
 
@@ -1915,13 +1994,34 @@ def build_excel_report(
         "Filtered Raw Data"
     )
 
+    # Keep the original raw columns, but expose the calculated fields needed
+    # to audit the dashboard. Raw Data remains untouched.
     filtered_export = filtered_data.drop(
         columns=[
             c for c in internal_columns
             if c in filtered_data.columns
         ],
         errors="ignore"
-    )
+    ).copy()
+
+    # Explicit ticket-level calculation used by the dashboard:
+    # Closed Time - Created Time.
+    if "Closure Hours" in filtered_data.columns:
+        filtered_export["Calculated Resolution Time"] = (
+            filtered_data["Closure Hours"]
+            .apply(format_hms)
+        )
+
+    if "SLA" in filtered_data.columns:
+        filtered_export["Calculated SLA"] = (
+            filtered_data["SLA"]
+        )
+
+    if "Open Age Hours" in filtered_data.columns:
+        filtered_export["Calculated Open Age"] = (
+            filtered_data["Open Age Hours"]
+            .apply(format_hms)
+        )
 
     end_row, end_col = add_dataframe(
         filtered_ws,
@@ -1939,6 +2039,61 @@ def build_excel_report(
     )
 
     filtered_ws.freeze_panes = "A2"
+
+    # Audit note: this is the exact resolution-time calculation used by
+    # the dashboard KPIs and percentile calculations.
+    note_row = end_row + 3
+    filtered_ws.cell(
+        note_row,
+        1,
+        "AUDIT NOTE"
+    )
+    filtered_ws.cell(
+        note_row,
+        1
+    ).font = Font(
+        bold=True,
+        color=white
+    )
+    filtered_ws.cell(
+        note_row,
+        1
+    ).fill = PatternFill(
+        "solid",
+        fgColor=navy
+    )
+
+    filtered_ws.merge_cells(
+        start_row=note_row + 1,
+        start_column=1,
+        end_row=note_row + 3,
+        end_column=min(end_col, 8)
+    )
+
+    filtered_ws.cell(
+        note_row + 1,
+        1,
+        "Calculated Resolution Time = Closed time - Created time. "
+        "Only CLOSED tickets with valid Created and Closed timestamps "
+        "are included in closure-time, SLA and percentile calculations. "
+        "The 90%, 95% and 99% values use Excel PERCENTILE.INC-style "
+        "calculation on this calculated resolution-time population. "
+        "Displayed ticket-level time is H:MM:SS."
+    )
+    filtered_ws.cell(
+        note_row + 1,
+        1
+    ).alignment = Alignment(
+        wrap_text=True,
+        vertical="top"
+    )
+    filtered_ws.cell(
+        note_row + 1,
+        1
+    ).fill = PatternFill(
+        "solid",
+        fgColor=grey
+    )
 
     auto_width(
         filtered_ws,
