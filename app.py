@@ -462,6 +462,8 @@ def prepare_data(raw):
         .clip(lower=0)
     )
 
+    df = add_fcr_fields(df)
+
     return df
 
 
@@ -513,81 +515,133 @@ def ensure_analysis_columns(data):
         "Issue L2"
     ] = "Unspecified"
 
+    data = add_fcr_fields(data)
+
     return data
 
 
 
 
-def same_call_stats(data):
+def add_fcr_fields(data):
     """
-    Identify tickets resolved on the same timestamp they were raised.
+    Operational FCR calculation.
 
-    Same-call = Created time and Closed time are both valid and their
-    timestamps are exactly equal. This is intentionally stricter than
-    "same day"; a ticket raised at 10:15 and closed at 14:30 is not
-    counted as same-call.
+    FCR proxy = CLOSED + Call Type is populated + Inbound Count <= 1.
+    This avoids treating identical Created/Closed timestamps as FCR.
     """
-    if data is None or data.empty:
-        return {
-            "same_call": 0,
-            "same_day": 0,
-            "closed_within_1hr": 0,
-            "closed_total": 0,
-            "same_call_rate": 0.0,
-            "same_day_rate": 0.0,
-        }
-
     x = data.copy()
 
-    created = pd.to_datetime(
-        x["Created time"],
+    if "Call Type" not in x.columns:
+        x["Call Type"] = ""
+
+    if "Inbound Count" not in x.columns:
+        x["Inbound Count"] = np.nan
+
+    x["Call Type Clean"] = (
+        x["Call Type"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    x["Inbound Count Num"] = pd.to_numeric(
+        x["Inbound Count"],
         errors="coerce"
     )
-    closed = pd.to_datetime(
-        x["Closed time"],
-        errors="coerce"
+
+    closed = x["Status Clean"].eq("CLOSED")
+
+    x["FCR"] = (
+        closed
+        & x["Call Type Clean"].ne("")
+        & x["Inbound Count Num"].notna()
+        & x["Inbound Count Num"].le(1)
     )
 
-    valid = created.notna() & closed.notna()
-
-    same_call = (
-        valid
-        & created.eq(closed)
-    )
-
-    same_day = (
-        valid
-        & created.dt.normalize().eq(
-            closed.dt.normalize()
+    x["Same Day Resolution"] = (
+        closed
+        & x["Created time"].notna()
+        & x["Closed time"].notna()
+        & x["Created time"].dt.normalize().eq(
+            x["Closed time"].dt.normalize()
         )
     )
 
-    within_1hr = (
-        valid
-        & ((closed - created).dt.total_seconds() >= 0)
-        & ((closed - created).dt.total_seconds() <= 3600)
+    return x
+
+
+def fcr_stats(data):
+    if data is None or data.empty:
+        return {
+            "fcr": 0,
+            "eligible": 0,
+            "rate": 0.0,
+            "same_day": 0,
+            "coverage": 0.0,
+        }
+
+    x = add_fcr_fields(data)
+
+    eligible = (
+        x["Status Clean"].eq("CLOSED")
+        & x["Call Type Clean"].ne("")
+        & x["Inbound Count Num"].notna()
     )
 
-    closed_total = int(valid.sum())
-    same_call_count = int(same_call.sum())
-    same_day_count = int(same_day.sum())
-    within_1hr_count = int(within_1hr.sum())
+    eligible_count = int(eligible.sum())
+    fcr_count = int(x["FCR"].sum())
 
     return {
-        "same_call": same_call_count,
-        "same_day": same_day_count,
-        "closed_within_1hr": within_1hr_count,
-        "closed_total": closed_total,
-        "same_call_rate": (
-            same_call_count / closed_total * 100
-            if closed_total else 0
+        "fcr": fcr_count,
+        "eligible": eligible_count,
+        "rate": (
+            fcr_count / eligible_count * 100
+            if eligible_count else 0.0
         ),
-        "same_day_rate": (
-            same_day_count / closed_total * 100
-            if closed_total else 0
+        "same_day": int(x["Same Day Resolution"].sum()),
+        "coverage": (
+            x["Call Type Clean"].ne("").sum()
+            / len(x) * 100
+            if len(x) else 0.0
         ),
     }
 
+
+def fcr_period_summary(data, period_column):
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                period_column,
+                "Tickets Raised",
+                "Closed",
+                "FCR",
+                "FCR %",
+                "Same-Day Resolution",
+            ]
+        )
+
+    rows = []
+
+    for period, group in data.groupby(
+        period_column,
+        dropna=False,
+        sort=False
+    ):
+        x = fcr_stats(group)
+        rows.append({
+            period_column: period,
+            "Tickets Raised": group["Ticket ID"].nunique(),
+            "Closed": int(
+                group["Status Clean"].eq("CLOSED").sum()
+            ),
+            "FCR": x["fcr"],
+            "FCR %": round(x["rate"], 1),
+            "Same-Day Resolution": x["same_day"],
+        })
+
+    result = pd.DataFrame(rows)
+
+    return result
 
 
 def get_stats(data):
@@ -1032,7 +1086,6 @@ def make_email_summary(
 
     s = get_stats(data)
     g = requested_group_counts(data)
-    sc = same_call_stats(data)
 
     scope = filter_description(
         month,
@@ -1678,79 +1731,6 @@ def build_excel_report(
     group_end_row, group_end_col = add_dataframe(group_ws, group_analysis(filtered_data), 4)
     format_table(group_ws, 4, group_end_row, 1, group_end_col, "GroupAnalysisTable")
     auto_width(group_ws, max_width=32)
-
-# --------------------------------------------------------
-    # SAME-CALL ANALYSIS
-    # --------------------------------------------------------
-
-    same_call_ws = wb.create_sheet(
-        "Same Call Analysis"
-    )
-
-    style_title(
-        same_call_ws,
-        "SAME-CALL / SAME-DAY RESOLUTION",
-        filter_text,
-        end_col=3
-    )
-
-    sc_xl = same_call_stats(filtered_data)
-
-    same_call_rows = pd.DataFrame([
-        {
-            "Metric": "Resolved Same Call",
-            "Tickets": sc_xl["same_call"],
-            "% of Closed": round(sc_xl["same_call_rate"], 1),
-        },
-        {
-            "Metric": "Resolved Same Day",
-            "Tickets": sc_xl["same_day"],
-            "% of Closed": round(sc_xl["same_day_rate"], 1),
-        },
-        {
-            "Metric": "Closed Within 1 Hour",
-            "Tickets": sc_xl["closed_within_1hr"],
-            "% of Closed": round(
-                sc_xl["closed_within_1hr"] /
-                sc_xl["closed_total"] * 100,
-                1
-            ) if sc_xl["closed_total"] else 0,
-        },
-        {
-            "Metric": "Total Closed with Valid Timestamps",
-            "Tickets": sc_xl["closed_total"],
-            "% of Closed": 100.0 if sc_xl["closed_total"] else 0,
-        },
-    ])
-
-    sc_end_row, sc_end_col = add_dataframe(
-        same_call_ws,
-        same_call_rows,
-        4
-    )
-
-    format_table(
-        same_call_ws,
-        4,
-        sc_end_row,
-        1,
-        sc_end_col,
-        "SameCallTable"
-    )
-
-    auto_width(
-        same_call_ws,
-        max_width=34
-    )
-
-    same_call_ws["A10"] = (
-        "Definition: Same Call = Created time exactly equals Closed time. "
-        "Same Day = Created and Closed dates are the same."
-    )
-    same_call_ws["A10"].alignment = Alignment(
-        wrap_text=True
-    )
-    same_call_ws.merge_cells("A10:C11")
 
     # --------------------------------------------------------
     # ISSUE L1 & L2 ANALYSIS
@@ -2611,6 +2591,75 @@ with r2[3]:
         "red"
     )
 
+
+
+# ============================================================
+# FCR / FIRST CONTACT RESOLUTION
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">FCR / FIRST CONTACT RESOLUTION</div>',
+    unsafe_allow_html=True
+)
+
+fcr = fcr_stats(filtered)
+
+f1, f2, f3, f4 = st.columns(4)
+
+with f1:
+    show_kpi(
+        "FCR TICKETS",
+        f"{fcr['fcr']:,}",
+        "blue"
+    )
+
+with f2:
+    show_kpi(
+        "FCR %",
+        f"{fcr['rate']:.1f}%",
+        "green"
+    )
+
+with f3:
+    show_kpi(
+        "FCR ELIGIBLE",
+        f"{fcr['eligible']:,}",
+        "orange"
+    )
+
+with f4:
+    show_kpi(
+        "SAME-DAY RESOLUTION",
+        f"{fcr['same_day']:,}",
+        "green"
+    )
+
+st.caption(
+    "FCR operational proxy = Closed ticket + populated Call Type + Inbound Count ≤ 1. "
+    "The raw export does not contain a dedicated FCR flag/history."
+)
+
+if fcr["coverage"] == 0:
+    st.warning(
+        "Call Type is blank for this selection, so call-based FCR cannot be measured."
+    )
+elif fcr["eligible"] == 0:
+    st.warning(
+        "No closed tickets have both Call Type and a valid Inbound Count, "
+        "so FCR cannot be calculated for this selection."
+    )
+
+fcr_week = fcr_period_summary(filtered, "Week")
+
+if not fcr_week.empty:
+
+    st.markdown("**FCR by Week**")
+
+    st.dataframe(
+        fcr_week,
+        use_container_width=True,
+        hide_index=True
+    )
 
 # ============================================================
 # CG / ESCALATION GROUP BREAKUP
