@@ -8,7 +8,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # ============================================================
-# CG HELPLINE - TICKET INFLOW & RESOLUTION DASHBOARD
+# CG HELPLINE — TICKET INFLOW & RESOLUTION DASHBOARD
 # Streamlit version
 # ============================================================
 
@@ -674,6 +674,7 @@ def get_stats(data):
             "avg": 0.0,
             "median": 0.0,
             "p90": 0.0,
+            "p95": 0.0,
             "p99": 0.0,
             "old_open": 0,
         }
@@ -708,11 +709,13 @@ def get_stats(data):
         avg_hours = float(valid["Closure Hours"].mean())
         median_hours = float(valid["Closure Hours"].median())
         p90_hours = float(valid["Closure Hours"].quantile(0.90))
+        p95_hours = float(valid["Closure Hours"].quantile(0.95))
         p99_hours = float(valid["Closure Hours"].quantile(0.99))
     else:
         avg_hours = 0.0
         median_hours = 0.0
         p90_hours = 0.0
+        p95_hours = 0.0
         p99_hours = 0.0
 
     old_open = opened[
@@ -733,6 +736,7 @@ def get_stats(data):
         "avg": avg_hours,
         "median": median_hours,
         "p90": p90_hours,
+        "p95": p95_hours,
         "p99": p99_hours,
         "old_open": len(old_open),
     }
@@ -1290,15 +1294,17 @@ def make_email_summary(
             f"The average resolution time was {s['avg']:.2f} hours and "
             f"the median was {s['median']:.2f} hours. The 90th percentile "
             f"(P90) was {s['p90']:.2f} hours, meaning 90% of valid closed "
+            f"tickets were resolved within this time. The 95th percentile "
+            f"(P95) was {s['p95']:.2f} hours, meaning 95% of valid closed "
             f"tickets were resolved within this time. The 99th percentile "
             f"(P99) was {s['p99']:.2f} hours, meaning 99% were resolved "
-            f"within this time. P90 and P99 help highlight the long-tail "
+            f"within this time. 90% and 99% percentile help highlight the long-tail "
             f"cases that take considerably longer to resolve."
         )
     else:
         sla_text = "There are no valid closed tickets for SLA analysis."
         resolution_text = (
-            "Average, median, P90 and P99 resolution times are unavailable "
+            "Average, median, P90 and 99% Percentile resolution times are unavailable "
             "because there are no valid closed-ticket resolution times."
         )
 
@@ -1337,8 +1343,9 @@ def make_email_summary(
         ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
         ("Average resolution", f"{s['avg']:.2f} hrs", "Average closure time"),
         ("Median resolution", f"{s['median']:.2f} hrs", "Middle resolution time"),
-        ("P90 resolution", f"{s['p90']:.2f} hrs", "90% of valid closed tickets resolved within this time"),
-        ("P99 resolution", f"{s['p99']:.2f} hrs", "99% of valid closed tickets resolved within this time"),
+        ("90% Percentile resolution", f"{s['p90']:.2f} hrs", "90% of valid closed tickets resolved within this time"),
+        ("95% Percentile resolution", f"{s['p95']:.2f} hrs", "95% of valid closed tickets resolved within this time"),
+        ("99% Percentile resolution", f"{s['p99']:.2f} hrs", "99% of valid closed tickets resolved within this time"),
         ("Open >72h", f"{s['old_open']:,}", "Ageing backlog"),
     ]
 
@@ -1399,10 +1406,10 @@ RECOMMENDED FOCUS
 
 • Prioritise ageing open tickets and cases approaching the 72-hour threshold.
 • Review tickets exceeding the 24-hour SLA and identify recurring operational or issue-type drivers.
-• Review P90 and P99 resolution times to understand the long-tail cases requiring significantly more time to resolve.
+• Review P90, P95 and 99% Percentile resolution times to understand the long-tail cases requiring significantly more time to resolve.
 • Focus on the highest-contributing issue types for potential process, routing or knowledge-base improvements.
 
-Overall, the key opportunity is to improve 24-hour SLA adherence while reducing the long-tail resolution time reflected in the P90 and P99 metrics.
+Overall, the key opportunity is to improve 24-hour SLA adherence while reducing the long-tail resolution time reflected in the 90%, 95% and 99% percentile metrics.
 
 Regards,
 CG Helpline
@@ -2694,7 +2701,6 @@ st.markdown(
 r1 = st.columns(4)
 
 with r1[0]:
-
     show_kpi(
         "TICKETS RAISED",
         f"{s['raised']:,}",
@@ -2702,7 +2708,6 @@ with r1[0]:
     )
 
 with r1[1]:
-
     show_kpi(
         "CLOSED",
         f"{s['closed']:,}",
@@ -2710,7 +2715,6 @@ with r1[1]:
     )
 
 with r1[2]:
-
     show_kpi(
         "OPEN",
         f"{s['open']:,}",
@@ -2718,21 +2722,17 @@ with r1[2]:
     )
 
 with r1[3]:
-
     show_kpi(
         "CLOSED ≤24H",
         f"{s['within']:,}",
         "green"
     )
 
-
 st.write("")
-
 
 r2 = st.columns(4)
 
 with r2[0]:
-
     show_kpi(
         "CLOSED >24H",
         f"{s['after']:,}",
@@ -2740,7 +2740,6 @@ with r2[0]:
     )
 
 with r2[1]:
-
     show_kpi(
         "24H CLOSURE %",
         f"{s['rate'] * 100:.1f}%",
@@ -2748,7 +2747,6 @@ with r2[1]:
     )
 
 with r2[2]:
-
     show_kpi(
         "AVG CLOSURE HRS",
         f"{s['avg']:.2f}",
@@ -2756,12 +2754,43 @@ with r2[2]:
     )
 
 with r2[3]:
-
     show_kpi(
         "OPEN >72H",
         f"{s['old_open']:,}",
         "red"
     )
+
+st.write("")
+
+# Resolution-time distribution
+# 90%/95%/99% percentile are calculated only from valid closed-ticket resolution hours.
+r3 = st.columns(3)
+
+with r3[0]:
+    show_kpi(
+        "90% PERCENTILE RESOLUTION HRS",
+        f"{s['p90']:.2f}",
+        "blue"
+    )
+
+with r3[1]:
+    show_kpi(
+        "95% PERCENTILE RESOLUTION HRS",
+        f"{s['p95']:.2f}",
+        "orange"
+    )
+
+with r3[2]:
+    show_kpi(
+        "99% PERCENTILE RESOLUTION HRS",
+        f"{s['p99']:.2f}",
+        "red"
+    )
+
+st.caption(
+    "90%/95%/99% percentile show the resolution-time point within which "
+    "90%/95%/99% of valid closed tickets were resolved."
+)
 
 
 
