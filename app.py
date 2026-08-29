@@ -1065,6 +1065,132 @@ def requested_group_counts(data):
         "returns": x.loc[x["Group Analysis"].eq("High Returns/Reattempts"),"Ticket ID"].nunique(),
     }
 
+
+def apply_dashboard_filters(
+    data,
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+):
+    x = data.copy()
+
+    if selected_month != "All":
+        x = x[x["Month"].eq(selected_month)]
+
+    if selected_week != "All":
+        x = x[x["Week"].eq(selected_week)]
+
+    if selected_day != "All":
+        x = x[x["Day"].eq(selected_day)]
+
+    if selected_issue != "All":
+        x = x[x["Issue L1"].eq(selected_issue)]
+
+    return x
+
+
+def split_current_group(data):
+    """
+    Main dashboard = current CG Helpline queue.
+    Non-CG current groups are treated as moved-out tickets per the
+    workflow described by the user.
+    """
+    x = data.copy()
+
+    if "Group" in x.columns:
+        x["Group Analysis"] = (
+            x["Group"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .apply(group_bucket)
+        )
+    else:
+        x["Group Analysis"] = "Unassigned"
+
+    cg = x[x["Group Analysis"].eq("CG Helpline")].copy()
+    moved = x[~x["Group Analysis"].eq("CG Helpline")].copy()
+
+    return cg, moved
+
+
+def moved_group_summary(data):
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                "Destination Group",
+                "Moved Tickets",
+                "Closed",
+                "Open",
+                "Closed ≤24h",
+                "Closed >24h",
+                "24h %",
+            ]
+        )
+
+    rows = []
+
+    for group, g in data.groupby(
+        "Group Analysis",
+        dropna=False
+    ):
+        s = get_stats(g)
+
+        rows.append({
+            "Destination Group": group,
+            "Moved Tickets": g["Ticket ID"].nunique(),
+            "Closed": s["closed"],
+            "Open": s["open"],
+            "Closed ≤24h": s["within"],
+            "Closed >24h": s["after"],
+            "24h %": round(s["rate"] * 100, 1),
+        })
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values("Moved Tickets", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def moved_period_summary(data, period_column):
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                period_column,
+                "Moved Tickets",
+                "Closed",
+                "Open",
+                "Closed ≤24h",
+                "Closed >24h",
+                "24h %",
+            ]
+        )
+
+    rows = []
+
+    for period, g in data.groupby(
+        period_column,
+        dropna=False,
+        sort=False
+    ):
+        s = get_stats(g)
+
+        rows.append({
+            period_column: period,
+            "Moved Tickets": g["Ticket ID"].nunique(),
+            "Closed": s["closed"],
+            "Open": s["open"],
+            "Closed ≤24h": s["within"],
+            "Closed >24h": s["after"],
+            "24h %": round(s["rate"] * 100, 1),
+        })
+
+    return pd.DataFrame(rows)
+
+
+
 def filter_description(
     month,
     week,
@@ -1103,11 +1229,14 @@ def make_email_summary(
     s = get_stats(data)
     g = requested_group_counts(data)
 
-    scope = filter_description(
-        month,
-        week,
-        day,
-        issue
+    scope = (
+        "CG Helpline current queue | "
+        + filter_description(
+            month,
+            week,
+            day,
+            issue
+        )
     )
 
     # --------------------------------------------------------
@@ -2334,6 +2463,12 @@ df = ensure_analysis_columns(
 # raw upload works even after the app code has been updated.
 st.session_state.data = df
 
+# ============================================================
+# CURRENT GROUP SPLIT
+# ============================================================
+
+cg_all, moved_all = split_current_group(df)
+
 
 # ============================================================
 # DATA HEALTH CHECK
@@ -2370,7 +2505,7 @@ f1, f2, f3, f4 = st.columns(4)
 # every different date in the same month created another "Jul 2026"
 # entry in the dropdown.
 month_values = (
-    df[["Month", "Created time"]]
+    cg_all[["Month", "Created time"]]
     .dropna(subset=["Month", "Created time"])
     .sort_values("Created time")
     .drop_duplicates(subset=["Month"], keep="first")
@@ -2390,7 +2525,7 @@ with f1:
 # WEEK
 # ------------------------------------------------------------
 
-month_filtered = df.copy()
+month_filtered = cg_all.copy()
 
 if selected_month != "All":
 
@@ -2457,7 +2592,7 @@ with f3:
 # ------------------------------------------------------------
 
 issue_values = sorted(
-    df["Issue L1"]
+    cg_all["Issue L1"]
     .dropna()
     .unique()
 )
@@ -2474,39 +2609,23 @@ with f4:
 # APPLY FILTERS
 # ============================================================
 
-filtered = df.copy()
+# Main dashboard is CURRENT CG HELPLINE only.
+filtered = apply_dashboard_filters(
+    cg_all,
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+)
 
-if selected_month != "All":
-
-    filtered = filtered[
-        filtered["Month"]
-        ==
-        selected_month
-    ]
-
-if selected_week != "All":
-
-    filtered = filtered[
-        filtered["Week"]
-        ==
-        selected_week
-    ]
-
-if selected_day != "All":
-
-    filtered = filtered[
-        filtered["Day"]
-        ==
-        selected_day
-    ]
-
-if selected_issue != "All":
-
-    filtered = filtered[
-        filtered["Issue L1"]
-        ==
-        selected_issue
-    ]
+# Separate view for tickets currently in other queues.
+filtered_moved = apply_dashboard_filters(
+    moved_all,
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+)
 
 
 # ============================================================
@@ -2516,7 +2635,7 @@ if selected_issue != "All":
 st.markdown(
     f"""
     <div class="small-note">
-    Showing <b>{len(filtered):,}</b> tickets | 
+    Showing <b>{filtered["Ticket ID"].nunique():,}</b> current CG Helpline tickets | 
     {filter_description(selected_month, selected_week, selected_day, selected_issue)}
     </div>
     """,
@@ -2674,33 +2793,169 @@ if not fcr_week.empty:
     )
 
 # ============================================================
-# CG / ESCALATION GROUP BREAKUP
+# CG HELPLINE — CURRENT QUEUE
 # ============================================================
 
-st.markdown('<div class="section-header">CG / ESCALATION GROUP BREAKUP</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-header">CG HELPLINE — CURRENT QUEUE</div>',
+    unsafe_allow_html=True
+)
 
-group_counts = requested_group_counts(filtered)
+st.caption(
+    "The main Summary, SLA, FCR and Issue Type analysis uses ONLY tickets "
+    "whose current Group is CG Helpline."
+)
 
-gc1, gc2, gc3 = st.columns(3)
-with gc1:
-    show_kpi("CG HELPLINE TICKETS", f"{group_counts['cg']:,}", "blue")
-with gc2:
-    show_kpi("CREDIT ESCALATION", f"{group_counts['credit']:,}", "orange")
-with gc3:
-    show_kpi("HIGH RETURNS / REATTEMPTS", f"{group_counts['returns']:,}", "red")
 
-st.caption("Counts use unique Ticket ID and the Group recorded in the raw dump. If the export contains only the current Group, these are current group allocations rather than historical movement counts.")
+# ============================================================
+# TICKETS MOVED OUT OF CG HELPLINE
+# ============================================================
 
-group_summary = group_analysis(filtered)
-if not group_summary.empty:
-    gl, gr = st.columns([1.05, 0.95])
-    with gl:
-        st.dataframe(group_summary, use_container_width=True, hide_index=True)
-    with gr:
+st.markdown(
+    '<div class="section-header">TICKETS MOVED OUT OF CG HELPLINE</div>',
+    unsafe_allow_html=True
+)
+
+moved_stats = get_stats(filtered_moved)
+moved_total = filtered_moved["Ticket ID"].nunique()
+
+mv1, mv2, mv3, mv4 = st.columns(4)
+
+with mv1:
+    show_kpi(
+        "MOVED TO OTHER GROUPS",
+        f"{moved_total:,}",
+        "orange"
+    )
+
+with mv2:
+    show_kpi(
+        "MOVED — CLOSED",
+        f"{moved_stats['closed']:,}",
+        "green"
+    )
+
+with mv3:
+    show_kpi(
+        "MOVED — OPEN",
+        f"{moved_stats['open']:,}",
+        "red"
+    )
+
+with mv4:
+    show_kpi(
+        "MOVED — CLOSED ≤24H",
+        f"{moved_stats['within']:,}",
+        "blue"
+    )
+
+mv5, mv6 = st.columns(2)
+
+with mv5:
+    show_kpi(
+        "MOVED — CLOSED >24H",
+        f"{moved_stats['after']:,}",
+        "orange"
+    )
+
+with mv6:
+    show_kpi(
+        "MOVED — 24H CLOSURE %",
+        f"{moved_stats['rate'] * 100:.1f}%",
+        "green"
+    )
+
+st.caption(
+    "Per your stated workflow, every ticket whose current Group is not "
+    "CG Helpline is treated as a ticket moved out of CG. This is a "
+    "current-state view; the raw snapshot does not contain historical "
+    "transfer timestamps."
+)
+
+moved_groups = moved_group_summary(filtered_moved)
+
+if not moved_groups.empty:
+
+    st.markdown("### Destination Group-wise Movement")
+
+    mg1, mg2 = st.columns([1.1, 0.9])
+
+    with mg1:
+        st.dataframe(
+            moved_groups,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    with mg2:
         import plotly.express as px
-        fig_group = px.bar(group_summary, x="Tickets", y="Group", orientation="h", text="Tickets", title="Tickets by Group")
-        fig_group.update_layout(height=330, margin=dict(l=10,r=10,t=50,b=10))
-        st.plotly_chart(fig_group, use_container_width=True)
+
+        fig_moved = px.bar(
+            moved_groups.sort_values("Moved Tickets"),
+            x="Moved Tickets",
+            y="Destination Group",
+            orientation="h",
+            text="Moved Tickets",
+            title="Tickets Moved to Other Groups"
+        )
+
+        fig_moved.update_layout(
+            height=360,
+            margin=dict(
+                l=10,
+                r=10,
+                t=50,
+                b=10
+            )
+        )
+
+        st.plotly_chart(
+            fig_moved,
+            use_container_width=True
+        )
+
+
+st.markdown("### Moved Tickets — Month-wise")
+
+moved_month = moved_period_summary(
+    filtered_moved,
+    "Month"
+)
+
+if not moved_month.empty:
+    st.dataframe(
+        moved_month,
+        use_container_width=True,
+        hide_index=True
+    )
+
+st.markdown("### Moved Tickets — Week-wise")
+
+moved_week = moved_period_summary(
+    filtered_moved,
+    "Week"
+)
+
+if not moved_week.empty:
+    st.dataframe(
+        moved_week,
+        use_container_width=True,
+        hide_index=True
+    )
+
+st.markdown("### Moved Tickets — Day-wise")
+
+moved_day = moved_period_summary(
+    filtered_moved,
+    "Day"
+)
+
+if not moved_day.empty:
+    st.dataframe(
+        moved_day,
+        use_container_width=True,
+        hide_index=True
+    )
 
 
 # ============================================================
