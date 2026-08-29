@@ -602,6 +602,43 @@ def summary_by_group(data, group_column):
     return pd.DataFrame(rows)
 
 
+
+def group_bucket(value):
+    text = str(value).strip()
+    if text == "" or text.lower() == "nan":
+        return "Unassigned"
+    n = text.lower()
+    if "credit" in n and "escalat" in n:
+        return "Credit Escalation"
+    if "high returns" in n and "reattempt" in n:
+        return "High Returns/Reattempts"
+    if "cg helpline" in n or n == "cg":
+        return "CG Helpline"
+    return text
+
+def group_analysis(data):
+    if data.empty or "Group" not in data.columns:
+        return pd.DataFrame(columns=["Group", "Tickets", "% of Tickets"])
+    x = data.copy()
+    x["Group Analysis"] = x["Group"].fillna("").astype(str).str.strip().apply(group_bucket)
+    result = (x.groupby("Group Analysis")["Ticket ID"].nunique().reset_index(name="Tickets")
+              .rename(columns={"Group Analysis":"Group"})
+              .sort_values("Tickets", ascending=False).reset_index(drop=True))
+    total = result["Tickets"].sum()
+    result["% of Tickets"] = ((result["Tickets"] / total * 100).round(1) if total else 0)
+    return result
+
+def requested_group_counts(data):
+    if data.empty or "Group" not in data.columns:
+        return {"cg":0,"credit":0,"returns":0}
+    x=data.copy()
+    x["Group Analysis"]=x["Group"].fillna("").astype(str).str.strip().apply(group_bucket)
+    return {
+        "cg": x.loc[x["Group Analysis"].eq("CG Helpline"),"Ticket ID"].nunique(),
+        "credit": x.loc[x["Group Analysis"].eq("Credit Escalation"),"Ticket ID"].nunique(),
+        "returns": x.loc[x["Group Analysis"].eq("High Returns/Reattempts"),"Ticket ID"].nunique(),
+    }
+
 def filter_description(
     month,
     week,
@@ -638,6 +675,7 @@ def make_email_summary(
 ):
 
     s = get_stats(data)
+    g = requested_group_counts(data)
 
     scope = filter_description(
         month,
@@ -1274,6 +1312,16 @@ def build_excel_report(
     )
 
     # --------------------------------------------------------
+    # GROUP ANALYSIS
+    # --------------------------------------------------------
+
+    group_ws = wb.create_sheet("Group Analysis")
+    style_title(group_ws, "CG / ESCALATION GROUP ANALYSIS", filter_text, end_col=3)
+    group_end_row, group_end_col = add_dataframe(group_ws, group_analysis(filtered_data), 4)
+    format_table(group_ws, 4, group_end_row, 1, group_end_col, "GroupAnalysisTable")
+    auto_width(group_ws, max_width=32)
+
+    # --------------------------------------------------------
     # MONTHLY
     # --------------------------------------------------------
 
@@ -1476,22 +1524,14 @@ def build_excel_report(
 # HEADER
 # ============================================================
 
-st.markdown(
+st.html(
     """
-    <div class="dashboard-header">
-
-        <h1>
-        CG HELPLINE — TICKET INFLOW & RESOLUTION DASHBOARD
-        </h1>
-
-        <p>
-        Paste the latest raw dump or upload the Excel/CSV export.
-        All calculations are performed in Streamlit.
-        </p>
-
+    <div style="background:linear-gradient(135deg,#17324D 0%,#234F73 60%,#2F75B5 100%);color:white;padding:24px 30px;border-radius:12px;margin-bottom:18px;box-shadow:0 5px 18px rgba(23,50,77,.16);">
+        <div style="font-size:12px;font-weight:800;letter-spacing:1.2px;opacity:.78;margin-bottom:6px;">CG HELPLINE • OPERATIONS ANALYTICS</div>
+        <div style="font-size:30px;font-weight:800;line-height:1.15;letter-spacing:-.4px;">Ticket Inflow &amp; Resolution Dashboard</div>
+        <div style="font-size:14px;margin-top:8px;opacity:.88;">Inflow • SLA performance • backlog ageing • issue mix • escalation flow</div>
     </div>
-    """,
-    unsafe_allow_html=True
+    """
 )
 
 
@@ -1872,6 +1912,36 @@ with r2[3]:
         f"{s['old_open']:,}",
         "red"
     )
+
+
+# ============================================================
+# CG / ESCALATION GROUP BREAKUP
+# ============================================================
+
+st.markdown('<div class="section-header">CG / ESCALATION GROUP BREAKUP</div>', unsafe_allow_html=True)
+
+group_counts = requested_group_counts(filtered)
+
+gc1, gc2, gc3 = st.columns(3)
+with gc1:
+    show_kpi("CG HELPLINE TICKETS", f"{group_counts['cg']:,}", "blue")
+with gc2:
+    show_kpi("CREDIT ESCALATION", f"{group_counts['credit']:,}", "orange")
+with gc3:
+    show_kpi("HIGH RETURNS / REATTEMPTS", f"{group_counts['returns']:,}", "red")
+
+st.caption("Counts use unique Ticket ID and the Group recorded in the raw dump. If the export contains only the current Group, these are current group allocations rather than historical movement counts.")
+
+group_summary = group_analysis(filtered)
+if not group_summary.empty:
+    gl, gr = st.columns([1.05, 0.95])
+    with gl:
+        st.dataframe(group_summary, use_container_width=True, hide_index=True)
+    with gr:
+        import plotly.express as px
+        fig_group = px.bar(group_summary, x="Tickets", y="Group", orientation="h", text="Tickets", title="Tickets by Group")
+        fig_group.update_layout(height=330, margin=dict(l=10,r=10,t=50,b=10))
+        st.plotly_chart(fig_group, use_container_width=True)
 
 
 # ============================================================
