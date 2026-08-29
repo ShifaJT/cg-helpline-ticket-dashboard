@@ -1,72 +1,55 @@
-import streamlit as st
+
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import io
 
 # ============================================================
-# PAGE CONFIG
+# CG HELPLINE - TICKET INFLOW & RESOLUTION DASHBOARD
+# Streamlit version
 # ============================================================
 
 st.set_page_config(
-    page_title="CG Helpline Dashboard",
+    page_title="CG Helpline Ticket Dashboard",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
 # ============================================================
-# CUSTOM CSS
+# CSS - KEEP THE DASHBOARD LOOK CLOSE TO THE EXCEL VERSION
 # ============================================================
 
 st.markdown("""
 <style>
-
 .stApp {
     background-color: #f5f7fb;
 }
 
 .block-container {
-    padding-top: 1.2rem;
+    padding-top: 1rem;
     padding-left: 2rem;
     padding-right: 2rem;
     max-width: 1600px;
 }
 
-/* Header */
-
 .dashboard-header {
     background: #17324d;
     color: white;
-    padding: 20px 25px;
+    padding: 18px 24px;
     border-radius: 8px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 }
 
 .dashboard-header h1 {
     margin: 0;
-    font-size: 26px;
+    font-size: 25px;
 }
 
 .dashboard-header p {
     margin: 5px 0 0 0;
     font-size: 13px;
-    opacity: 0.8;
+    opacity: .82;
 }
-
-/* Section headings */
-
-.section-header {
-    color: #17324d;
-    font-size: 18px;
-    font-weight: 800;
-    margin-top: 18px;
-    margin-bottom: 10px;
-    padding-bottom: 7px;
-    border-bottom: 2px solid #dfe5eb;
-}
-
-/* Filter header */
 
 .filter-header {
     background: #2f75b5;
@@ -77,11 +60,19 @@ st.markdown("""
     margin-bottom: 10px;
 }
 
-/* KPI */
+.section-header {
+    color: #17324d;
+    font-size: 17px;
+    font-weight: 800;
+    margin-top: 18px;
+    margin-bottom: 10px;
+    padding-bottom: 7px;
+    border-bottom: 2px solid #dfe5eb;
+}
 
-.kpi {
+.kpi-card {
     color: white;
-    padding: 15px;
+    padding: 15px 16px;
     border-radius: 9px;
     min-height: 105px;
 }
@@ -94,44 +85,39 @@ st.markdown("""
 .kpi-value {
     font-size: 28px;
     font-weight: 800;
-    margin-top: 8px;
+    margin-top: 7px;
 }
 
-.kpi-blue {
+.blue {
     background: #2f75b5;
 }
 
-.kpi-green {
+.green {
     background: #70ad47;
 }
 
-.kpi-red {
+.red {
     background: #c00000;
 }
 
-.kpi-orange {
+.orange {
     background: #ed7d31;
 }
 
-/* Upload */
-
-.upload-box {
-    background: white;
-    border: 1px solid #dfe5eb;
-    border-radius: 9px;
-    padding: 15px;
+.small-note {
+    font-size: 12px;
+    color: #667085;
 }
 
-/* Dataframe */
+.email-box {
+    background: white;
+    border: 1px solid #d9e1e8;
+    border-radius: 8px;
+    padding: 8px;
+}
 
 div[data-testid="stDataFrame"] {
     border: 1px solid #dfe5eb;
-}
-
-/* Buttons */
-
-.stButton > button {
-    font-weight: 700;
 }
 
 </style>
@@ -147,159 +133,136 @@ REQUIRED_COLUMNS = [
     "Status",
     "Created time",
     "Closed time",
-    "Issue Type - L1"
+    "Issue Type - L1",
 ]
 
 
 # ============================================================
-# FUNCTIONS
+# HELPER FUNCTIONS
 # ============================================================
 
-def normalize_column_name(column):
-    """
-    Removes extra spaces from column names.
-    """
-    return str(column).strip()
+def clean_headers(df):
+    """Clean only whitespace around headers. Do not rename raw columns."""
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
 
 
-def read_excel_file(uploaded_file):
+def read_file(uploaded_file):
+    """Read CSV/XLSX/XLS."""
+    try:
+        filename = uploaded_file.name.lower()
+
+        if filename.endswith(".csv"):
+            return pd.read_csv(uploaded_file)
+
+        return pd.read_excel(uploaded_file)
+
+    except Exception as e:
+        st.error(f"Could not read the file: {e}")
+        return None
+
+
+def read_paste(text):
+    """
+    Read Excel copy/paste.
+    Excel normally pastes tab-separated values.
+    """
+
+    if not text or not text.strip():
+        return None
 
     try:
-
-        excel = pd.ExcelFile(uploaded_file)
-
-        # Always use first sheet from raw dump
-        df = pd.read_excel(
-            uploaded_file,
-            sheet_name=excel.sheet_names[0]
+        df = pd.read_csv(
+            io.StringIO(text),
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
         )
+
+        if len(df.columns) == 1:
+            df = pd.read_csv(
+                io.StringIO(text),
+                dtype=str,
+                keep_default_na=False,
+            )
 
         return df
 
     except Exception as e:
 
-        st.error(f"Unable to read Excel file: {e}")
-
-        return None
-
-
-def read_uploaded_file(uploaded_file):
-
-    if uploaded_file is None:
-        return None
-
-    filename = uploaded_file.name.lower()
-
-    if filename.endswith(".csv"):
-
-        try:
-            return pd.read_csv(uploaded_file)
-        except Exception as e:
-            st.error(f"Unable to read CSV file: {e}")
-            return None
-
-    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-
-        return read_excel_file(uploaded_file)
-
-    return None
-
-
-def read_pasted_data(text):
-
-    if not text.strip():
-        return None
-
-    try:
-
-        # Excel copy/paste normally produces TAB separated data
-
-        df = pd.read_csv(
-            io.StringIO(text),
-            sep="\t"
+        st.error(
+            "Could not read the pasted data. "
+            "Make sure you copied the complete Excel table including headers."
         )
 
-        # If it wasn't tab separated,
-        # try comma separated.
-
-        if len(df.columns) <= 1:
-
-            df = pd.read_csv(
-                io.StringIO(text)
-            )
-
-        return df
-
-    except Exception:
-
-        try:
-
-            df = pd.read_csv(
-                io.StringIO(text),
-                sep=","
-            )
-
-            return df
-
-        except Exception as e:
-
-            st.error(
-                f"Unable to read pasted data: {e}"
-            )
-
-            return None
-
-
-def prepare_data(df):
-
-    if df is None:
         return None
 
-    df = df.copy()
 
-    # Clean headers
+def parse_datetime_series(series):
+    """
+    Robust datetime parser.
+    Handles normal Excel/export timestamps and mixed values.
+    """
 
-    df.columns = [
-        normalize_column_name(c)
-        for c in df.columns
-    ]
+    result = pd.to_datetime(
+        series,
+        errors="coerce",
+        dayfirst=False,
+    )
 
-    # Check required columns
+    # If too many values failed, try dayfirst.
+    if result.notna().sum() < max(1, int(len(series) * 0.5)):
 
+        result2 = pd.to_datetime(
+            series,
+            errors="coerce",
+            dayfirst=True,
+        )
+
+        if result2.notna().sum() > result.notna().sum():
+            result = result2
+
+    return result
+
+
+def prepare_data(raw):
+    """
+    Prepare dashboard fields without modifying the raw export columns.
+    """
+
+    if raw is None:
+        return None
+
+    df = clean_headers(raw)
+
+    # Required column check
     missing = [
-        col
-        for col in REQUIRED_COLUMNS
-        if col not in df.columns
+        c for c in REQUIRED_COLUMNS
+        if c not in df.columns
     ]
 
     if missing:
 
         st.error(
-            "The following required columns are missing:\n\n"
+            "Required columns are missing:\n\n"
             + ", ".join(missing)
         )
 
         return None
 
-    # Remove completely empty rows
+    # Remove completely blank rows
+    df = df.dropna(how="all").copy()
 
-    df = df.dropna(
-        how="all"
-    ).copy()
-
-    # --------------------------------------------------------
-    # DATE COLUMNS
-    # --------------------------------------------------------
-
-    df["Created time"] = pd.to_datetime(
-        df["Created time"],
-        errors="coerce"
+    # Ticket ID is the safest row identifier.
+    df["Ticket ID"] = (
+        df["Ticket ID"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
     )
 
-    df["Closed time"] = pd.to_datetime(
-        df["Closed time"],
-        errors="coerce"
-    )
+    df = df[df["Ticket ID"] != ""].copy()
 
     # --------------------------------------------------------
     # STATUS
@@ -330,8 +293,16 @@ def prepare_data(df):
     ] = "Unspecified"
 
     # --------------------------------------------------------
-    # CREATED DATE
+    # CREATED / CLOSED
     # --------------------------------------------------------
+
+    df["Created time"] = parse_datetime_series(
+        df["Created time"]
+    )
+
+    df["Closed time"] = parse_datetime_series(
+        df["Closed time"]
+    )
 
     df["Created Date"] = (
         df["Created time"]
@@ -349,27 +320,30 @@ def prepare_data(df):
 
     # --------------------------------------------------------
     # WEEK
-    #
-    # Monday = beginning of week
+    # Monday-Sunday
     # --------------------------------------------------------
 
     df["Week Start"] = (
         df["Created Date"]
-        - pd.to_timedelta(
+        -
+        pd.to_timedelta(
             df["Created Date"].dt.weekday,
-            unit="D"
+            unit="D",
         )
     )
 
     df["Week End"] = (
         df["Week Start"]
-        + pd.Timedelta(days=6)
+        +
+        pd.Timedelta(days=6)
     )
 
     df["Week"] = (
         df["Week Start"].dt.strftime("%d %b")
-        + " - "
-        + df["Week End"].dt.strftime("%d %b %Y")
+        +
+        " - "
+        +
+        df["Week End"].dt.strftime("%d %b %Y")
     )
 
     # --------------------------------------------------------
@@ -385,21 +359,18 @@ def prepare_data(df):
     # CLOSURE HOURS
     #
     # IMPORTANT:
-    #
-    # Only calculate when:
-    # Status = CLOSED
-    # Created time exists
-    # Closed time exists
-    #
-    # Negative values are converted to 0.
+    # Only CLOSED tickets with both timestamps are included.
+    # Negative values are not allowed.
     # --------------------------------------------------------
 
     df["Closure Hours"] = np.nan
 
     closed_mask = (
-        (df["Status Clean"] == "CLOSED")
-        & df["Created time"].notna()
-        & df["Closed time"].notna()
+        df["Status Clean"].eq("CLOSED")
+        &
+        df["Created time"].notna()
+        &
+        df["Closed time"].notna()
     )
 
     df.loc[
@@ -415,42 +386,41 @@ def prepare_data(df):
         / 3600
     )
 
-    # Never allow negative closure hours
-
     df["Closure Hours"] = (
         df["Closure Hours"]
         .clip(lower=0)
     )
 
     # --------------------------------------------------------
-    # SLA
+    # SLA BUCKET
     # --------------------------------------------------------
 
     df["SLA"] = "Open"
 
     df.loc[
         closed_mask
-        & (df["Closure Hours"] <= 24),
+        &
+        (df["Closure Hours"] <= 24),
         "SLA"
     ] = "Within 24h"
 
     df.loc[
         closed_mask
-        & (df["Closure Hours"] > 24),
+        &
+        (df["Closure Hours"] > 24),
         "SLA"
     ] = "After 24h"
 
     # --------------------------------------------------------
     # OPEN AGE
-    #
-    # For open tickets only.
     # --------------------------------------------------------
 
     now = pd.Timestamp.now()
 
     open_mask = (
-        (df["Status Clean"] == "OPEN")
-        & df["Created time"].notna()
+        df["Status Clean"].eq("OPEN")
+        &
+        df["Created time"].notna()
     )
 
     df["Open Age Hours"] = np.nan
@@ -486,17 +456,17 @@ def get_stats(data):
             "open": 0,
             "within": 0,
             "after": 0,
-            "rate": 0,
-            "avg": 0,
-            "old_open": 0
+            "rate": 0.0,
+            "avg": 0.0,
+            "old_open": 0,
         }
 
     closed = data[
-        data["Status Clean"] == "CLOSED"
+        data["Status Clean"].eq("CLOSED")
     ]
 
     opened = data[
-        data["Status Clean"] == "OPEN"
+        data["Status Clean"].eq("OPEN")
     ]
 
     within = closed[
@@ -511,14 +481,14 @@ def get_stats(data):
         (closed["Closure Hours"] > 24)
     ]
 
-    valid_closure = closed[
+    valid = closed[
         closed["Closure Hours"].notna()
     ]
 
     avg_hours = (
-        valid_closure["Closure Hours"].mean()
-        if not valid_closure.empty
-        else 0
+        valid["Closure Hours"].mean()
+        if not valid.empty
+        else 0.0
     )
 
     old_open = opened[
@@ -533,89 +503,319 @@ def get_stats(data):
         "after": len(after),
         "rate": (
             len(within) / len(closed)
-            if len(closed) > 0
-            else 0
+            if len(closed)
+            else 0.0
         ),
-        "avg": avg_hours,
-        "old_open": len(old_open)
+        "avg": float(avg_hours),
+        "old_open": len(old_open),
     }
 
 
-def show_kpi(label, value, colour):
+def show_kpi(label, value, colour_class):
 
-    st.markdown(
+    colours = {
+        "blue": "#2f75b5",
+        "green": "#70ad47",
+        "red": "#c00000",
+        "orange": "#ed7d31",
+    }
+
+    bg = colours.get(
+        colour_class,
+        "#2f75b5"
+    )
+
+    # st.html prevents Streamlit from displaying the HTML itself.
+    st.html(
         f"""
-        <div class="kpi {colour}">
-            <div class="kpi-label">
+        <div style="
+            background:{bg};
+            color:white;
+            padding:15px 16px;
+            border-radius:9px;
+            min-height:105px;
+            width:100%;
+        ">
+
+            <div style="
+                font-size:13px;
+                font-weight:700;
+            ">
                 {label}
             </div>
 
-            <div class="kpi-value">
+            <div style="
+                font-size:28px;
+                font-weight:800;
+                margin-top:7px;
+            ">
                 {value}
             </div>
+
         </div>
-        """,
-        unsafe_allow_html=True
+        """
     )
 
 
-def create_summary_table(
-    data,
-    group_column
-):
+def summary_by_group(data, group_column):
 
-    output = []
+    if data.empty:
+        return pd.DataFrame(
+            columns=[
+                group_column,
+                "Raised",
+                "Closed",
+                "Open",
+                "≤24h",
+                ">24h",
+                "24h %",
+            ]
+        )
 
-    for value in data[group_column].dropna().unique():
+    rows = []
 
-        subset = data[
-            data[group_column] == value
-        ]
+    for value, x in data.groupby(
+        group_column,
+        dropna=False,
+        sort=False
+    ):
 
-        s = get_stats(subset)
+        s = get_stats(x)
 
-        output.append({
-
+        rows.append({
             group_column: value,
-
             "Raised": s["raised"],
-
             "Closed": s["closed"],
-
             "Open": s["open"],
-
             "≤24h": s["within"],
-
             ">24h": s["after"],
-
             "24h %": round(
                 s["rate"] * 100,
                 1
-            )
+            ),
         })
 
-    result = pd.DataFrame(output)
+    return pd.DataFrame(rows)
 
-    return result
+
+def filter_description(
+    month,
+    week,
+    day,
+    issue
+):
+
+    parts = []
+
+    if month != "All":
+        parts.append(f"Month: {month}")
+
+    if week != "All":
+        parts.append(f"Week: {week}")
+
+    if day != "All":
+        parts.append(f"Day: {day}")
+
+    if issue != "All":
+        parts.append(f"Issue Type: {issue}")
+
+    if not parts:
+        return "All tickets"
+
+    return " | ".join(parts)
+
+
+def make_email_summary(
+    data,
+    month,
+    week,
+    day,
+    issue
+):
+
+    s = get_stats(data)
+
+    scope = filter_description(
+        month,
+        week,
+        day,
+        issue
+    )
+
+    # --------------------------------------------------------
+    # Top issue
+    # --------------------------------------------------------
+
+    issue_summary = summary_by_group(
+        data,
+        "Issue L1"
+    )
+
+    top_issue_text = "No issue-type data available."
+
+    if not issue_summary.empty:
+
+        top = issue_summary.iloc[0]
+
+        share = (
+            top["Raised"] / s["raised"] * 100
+            if s["raised"]
+            else 0
+        )
+
+        top_issue_text = (
+            f"{top['Issue L1']} had the highest inflow "
+            f"with {int(top['Raised']):,} tickets "
+            f"({share:.1f}% of total inflow)."
+        )
+
+    # --------------------------------------------------------
+    # Open backlog
+    # --------------------------------------------------------
+
+    backlog_text = (
+        f"There are {s['open']:,} open tickets."
+    )
+
+    if s["old_open"]:
+
+        backlog_text += (
+            f" {s['old_open']:,} open tickets are older than 72 hours."
+        )
+
+    # --------------------------------------------------------
+    # SLA
+    # --------------------------------------------------------
+
+    if s["closed"]:
+
+        sla_text = (
+            f"24-hour closure performance is "
+            f"{s['rate'] * 100:.1f}% "
+            f"({s['within']:,} of {s['closed']:,} closed tickets "
+            f"were closed within 24 hours)."
+        )
+
+    else:
+
+        sla_text = (
+            "No closed tickets are available for 24-hour SLA analysis."
+        )
+
+    # --------------------------------------------------------
+    # Slow closures
+    # --------------------------------------------------------
+
+    slow_text = ""
+
+    if s["after"]:
+
+        slow_text = (
+            f"{s['after']:,} closed tickets exceeded 24 hours."
+        )
+
+    else:
+
+        slow_text = (
+            "No closed tickets exceeded 24 hours."
+        )
+
+    # --------------------------------------------------------
+    # Average closure
+    # --------------------------------------------------------
+
+    if s["closed"]:
+
+        avg_text = (
+            f"Average closure time is {s['avg']:.2f} hours."
+        )
+
+    else:
+
+        avg_text = (
+            "Average closure time is not available because there are no valid closed-ticket timestamps."
+        )
+
+    # --------------------------------------------------------
+    # Date range
+    # --------------------------------------------------------
+
+    if data["Created time"].notna().any():
+
+        min_date = data["Created time"].min()
+        max_date = data["Created time"].max()
+
+        date_text = (
+            f"Ticket inflow period: "
+            f"{min_date.strftime('%d %b %Y')} to "
+            f"{max_date.strftime('%d %b %Y')}."
+        )
+
+    else:
+
+        date_text = "Ticket inflow period could not be determined."
+
+    # --------------------------------------------------------
+    # Email
+    # --------------------------------------------------------
+
+    email = f"""Subject: CG Helpline Ticket Performance Update – {scope}
+
+Hi Team,
+
+Please find below the CG Helpline ticket performance summary for {scope}.
+
+Key findings:
+• Total tickets raised: {s['raised']:,}
+• Tickets closed: {s['closed']:,}
+• Tickets currently open: {s['open']:,}
+• Closed within 24 hours: {s['within']:,}
+• Closed after 24 hours: {s['after']:,}
+• 24-hour closure rate: {s['rate'] * 100:.1f}%
+• Average closure time: {s['avg']:.2f} hours
+• Open tickets older than 72 hours: {s['old_open']:,}
+
+Operational observations:
+• {top_issue_text}
+• {sla_text}
+• {slow_text}
+• {backlog_text}
+• {avg_text}
+• {date_text}
+
+Recommended focus:
+• Review the open tickets older than 72 hours and prioritize ageing cases.
+• Review the issue types contributing the highest ticket inflow.
+• Track tickets exceeding the 24-hour closure SLA and identify recurring causes.
+
+Regards,
+CG Helpline
+"""
+
+    return email
 
 
 # ============================================================
 # HEADER
 # ============================================================
 
-st.markdown("""
-<div class="dashboard-header">
+st.markdown(
+    """
+    <div class="dashboard-header">
 
-<h1>
-CG HELPLINE — TICKET INFLOW & RESOLUTION DASHBOARD
-</h1>
+        <h1>
+        CG HELPLINE — TICKET INFLOW & RESOLUTION DASHBOARD
+        </h1>
 
-<p>
-Paste your latest raw ticket dump or upload the Excel/CSV file.
-</p>
+        <p>
+        Paste the latest raw dump or upload the Excel/CSV export.
+        All calculations are performed in Streamlit.
+        </p>
 
-</div>
-""", unsafe_allow_html=True)
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # ============================================================
@@ -628,7 +828,7 @@ if "data" not in st.session_state:
 
 
 # ============================================================
-# RAW DATA INPUT
+# RAW DATA
 # ============================================================
 
 st.markdown(
@@ -636,25 +836,26 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-upload_col, info_col = st.columns(
+upload_col, help_col = st.columns(
     [2, 1]
 )
 
 with upload_col:
 
     uploaded_file = st.file_uploader(
-        "Upload your raw dump",
+        "Upload your raw ticket dump",
         type=[
             "xlsx",
             "xls",
             "csv"
-        ]
+        ],
+        help="Use the same raw export you currently use in Excel.",
     )
 
-with info_col:
+with help_col:
 
     st.info(
-        "You can either upload the raw Excel file or copy the complete Excel table and paste it below."
+        "You can upload the raw file OR copy the entire Excel table and paste it below."
     )
 
 
@@ -662,37 +863,35 @@ paste_data = st.text_area(
     "Paste complete raw dump",
     height=130,
     placeholder=(
-        "Copy the complete raw data from Excel "
-        "and paste it here, including the header row."
-    )
+        "Copy the complete raw table from Excel, including headers, "
+        "and paste it here."
+    ),
 )
 
 
 load_button = st.button(
     "Load / Refresh Dashboard",
-    type="primary"
+    type="primary",
 )
 
 
 # ============================================================
-# LOAD DATA
+# LOAD
 # ============================================================
 
 if load_button:
 
     raw_df = None
 
-    # Uploaded file gets priority
-
     if uploaded_file is not None:
 
-        raw_df = read_uploaded_file(
+        raw_df = read_file(
             uploaded_file
         )
 
     elif paste_data.strip():
 
-        raw_df = read_pasted_data(
+        raw_df = read_paste(
             paste_data
         )
 
@@ -712,13 +911,13 @@ if load_button:
 
 
 # ============================================================
-# STOP UNTIL DATA IS LOADED
+# WAIT FOR DATA
 # ============================================================
 
 if st.session_state.data is None:
 
     st.warning(
-        "Please upload or paste your raw ticket data."
+        "Please upload or paste your raw ticket dump."
     )
 
     st.stop()
@@ -728,30 +927,16 @@ df = st.session_state.data
 
 
 # ============================================================
-# DATA INFORMATION
+# DATA HEALTH CHECK
 # ============================================================
 
-info1, info2, info3 = st.columns(3)
+invalid_created = df["Created time"].isna().sum()
 
-with info1:
+if invalid_created:
 
-    st.caption(
-        f"Total raw tickets: {len(df):,}"
-    )
-
-with info2:
-
-    st.caption(
-        f"Date range: "
-        f"{df['Created time'].min().strftime('%d %b %Y') if df['Created time'].notna().any() else 'N/A'}"
-        f" → "
-        f"{df['Created time'].max().strftime('%d %b %Y') if df['Created time'].notna().any() else 'N/A'}"
-    )
-
-with info3:
-
-    st.caption(
-        f"Issue types: {df['Issue L1'].nunique():,}"
+    st.warning(
+        f"{invalid_created:,} ticket(s) have an invalid/missing Created time "
+        "and will not appear correctly in month/week/day analysis."
     )
 
 
@@ -764,27 +949,29 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-filter1, filter2, filter3, filter4 = st.columns(4)
+f1, f2, f3, f4 = st.columns(4)
 
 
 # ------------------------------------------------------------
 # MONTH
 # ------------------------------------------------------------
 
-all_months = sorted(
-    df["Month"]
-    .dropna()
-    .unique(),
-    key=lambda x: pd.to_datetime(
-        "01 " + x
-    )
+month_values = (
+    df[
+        ["Month", "Created time"]
+    ]
+    .dropna(subset=["Month"])
+    .drop_duplicates()
+    .sort_values("Created time")
+    ["Month"]
+    .tolist()
 )
 
-with filter1:
+with f1:
 
     selected_month = st.selectbox(
         "Month",
-        ["All"] + list(all_months)
+        ["All"] + month_values
     )
 
 
@@ -792,27 +979,28 @@ with filter1:
 # WEEK
 # ------------------------------------------------------------
 
-month_data = df.copy()
+month_filtered = df.copy()
 
 if selected_month != "All":
 
-    month_data = month_data[
-        month_data["Month"]
-        == selected_month
+    month_filtered = month_filtered[
+        month_filtered["Month"]
+        ==
+        selected_month
     ]
-
 
 week_values = (
-    month_data[
+    month_filtered[
         ["Week", "Week Start"]
     ]
+    .dropna(subset=["Week"])
     .drop_duplicates()
     .sort_values("Week Start")
     ["Week"]
     .tolist()
 )
 
-with filter2:
+with f2:
 
     selected_week = st.selectbox(
         "Week",
@@ -824,27 +1012,28 @@ with filter2:
 # DAY
 # ------------------------------------------------------------
 
-week_data = month_data.copy()
+week_filtered = month_filtered.copy()
 
 if selected_week != "All":
 
-    week_data = week_data[
-        week_data["Week"]
-        == selected_week
+    week_filtered = week_filtered[
+        week_filtered["Week"]
+        ==
+        selected_week
     ]
-
 
 day_values = (
-    week_data[
+    week_filtered[
         ["Day", "Created Date"]
     ]
+    .dropna(subset=["Day"])
     .drop_duplicates()
     .sort_values("Created Date")
     ["Day"]
     .tolist()
 )
 
-with filter3:
+with f3:
 
     selected_day = st.selectbox(
         "Day",
@@ -862,7 +1051,7 @@ issue_values = sorted(
     .unique()
 )
 
-with filter4:
+with f4:
 
     selected_issue = st.selectbox(
         "Issue Type - L1",
@@ -876,41 +1065,56 @@ with filter4:
 
 filtered = df.copy()
 
-
 if selected_month != "All":
 
     filtered = filtered[
         filtered["Month"]
-        == selected_month
+        ==
+        selected_month
     ]
-
 
 if selected_week != "All":
 
     filtered = filtered[
         filtered["Week"]
-        == selected_week
+        ==
+        selected_week
     ]
-
 
 if selected_day != "All":
 
     filtered = filtered[
         filtered["Day"]
-        == selected_day
+        ==
+        selected_day
     ]
-
 
 if selected_issue != "All":
 
     filtered = filtered[
         filtered["Issue L1"]
-        == selected_issue
+        ==
+        selected_issue
     ]
 
 
 # ============================================================
-# KPI
+# FILTER INFO
+# ============================================================
+
+st.markdown(
+    f"""
+    <div class="small-note">
+    Showing <b>{len(filtered):,}</b> tickets | 
+    {filter_description(selected_month, selected_week, selected_day, selected_issue)}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# SUMMARY / KPI
 # ============================================================
 
 s = get_stats(filtered)
@@ -920,82 +1124,81 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+r1 = st.columns(4)
 
-row1 = st.columns(4)
-
-with row1[0]:
+with r1[0]:
 
     show_kpi(
         "TICKETS RAISED",
         f"{s['raised']:,}",
-        "kpi-blue"
+        "blue"
     )
 
-with row1[1]:
+with r1[1]:
 
     show_kpi(
         "CLOSED",
         f"{s['closed']:,}",
-        "kpi-green"
+        "green"
     )
 
-with row1[2]:
+with r1[2]:
 
     show_kpi(
         "OPEN",
         f"{s['open']:,}",
-        "kpi-red"
+        "red"
     )
 
-with row1[3]:
+with r1[3]:
 
     show_kpi(
         "CLOSED ≤24H",
         f"{s['within']:,}",
-        "kpi-green"
+        "green"
     )
 
 
 st.write("")
 
 
-row2 = st.columns(4)
+r2 = st.columns(4)
 
-with row2[0]:
+with r2[0]:
 
     show_kpi(
         "CLOSED >24H",
         f"{s['after']:,}",
-        "kpi-orange"
+        "orange"
     )
 
-with row2[1]:
+with r2[1]:
 
     show_kpi(
         "24H CLOSURE %",
         f"{s['rate'] * 100:.1f}%",
-        "kpi-green"
+        "green"
     )
 
-with row2[2]:
+with r2[2]:
 
     show_kpi(
         "AVG CLOSURE HRS",
         f"{s['avg']:.2f}",
-        "kpi-blue"
+        "blue"
     )
 
-with row2[3]:
+with r2[3]:
 
     show_kpi(
         "OPEN >72H",
         f"{s['old_open']:,}",
-        "kpi-red"
+        "red"
     )
 
 
 # ============================================================
-# ISSUE TYPE BREAKUP
+# ISSUE TYPE-WISE
 # ============================================================
 
 st.markdown(
@@ -1003,7 +1206,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-issue_summary = create_summary_table(
+issue_summary = summary_by_group(
     filtered,
     "Issue L1"
 )
@@ -1029,17 +1232,19 @@ if not issue_summary.empty:
 
     with right:
 
-        fig_issue = px.bar(
+        import plotly.express as px
+
+        fig = px.bar(
             issue_summary,
             x="Raised",
             y="Issue L1",
             orientation="h",
-            title="Tickets by Issue Type",
-            text="Raised"
+            text="Raised",
+            title="Tickets by Issue Type"
         )
 
-        fig_issue.update_layout(
-            height=380,
+        fig.update_layout(
+            height=400,
             margin=dict(
                 l=10,
                 r=10,
@@ -1049,7 +1254,7 @@ if not issue_summary.empty:
         )
 
         st.plotly_chart(
-            fig_issue,
+            fig,
             use_container_width=True
         )
 
@@ -1063,18 +1268,19 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-month_summary = create_summary_table(
+month_summary = summary_by_group(
     filtered,
     "Month"
 )
 
 if not month_summary.empty:
 
-    month_summary["_sort"] = month_summary[
-        "Month"
-    ].apply(
-        lambda x: pd.to_datetime(
-            "01 " + x
+    month_summary["_sort"] = (
+        month_summary["Month"]
+        .apply(
+            lambda x: pd.to_datetime(
+                "01 " + x
+            )
         )
     )
 
@@ -1098,7 +1304,7 @@ if not month_summary.empty:
 
     with right:
 
-        fig_month = px.line(
+        fig = px.line(
             month_summary,
             x="Month",
             y="Raised",
@@ -1106,7 +1312,7 @@ if not month_summary.empty:
             title="Monthly Ticket Inflow"
         )
 
-        fig_month.update_layout(
+        fig.update_layout(
             height=350,
             margin=dict(
                 l=10,
@@ -1117,7 +1323,7 @@ if not month_summary.empty:
         )
 
         st.plotly_chart(
-            fig_month,
+            fig,
             use_container_width=True
         )
 
@@ -1131,7 +1337,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-week_summary = create_summary_table(
+week_summary = summary_by_group(
     filtered,
     "Week"
 )
@@ -1147,9 +1353,7 @@ if not week_summary.empty:
     )
 
     week_summary = (
-        week_order[
-            ["Week"]
-        ]
+        week_order[["Week"]]
         .merge(
             week_summary,
             on="Week",
@@ -1171,7 +1375,7 @@ if not week_summary.empty:
 
     with right:
 
-        fig_week = px.line(
+        fig = px.line(
             week_summary,
             x="Week",
             y="Raised",
@@ -1179,7 +1383,7 @@ if not week_summary.empty:
             title="Weekly Ticket Inflow"
         )
 
-        fig_week.update_layout(
+        fig.update_layout(
             height=350,
             margin=dict(
                 l=10,
@@ -1190,7 +1394,7 @@ if not week_summary.empty:
         )
 
         st.plotly_chart(
-            fig_week,
+            fig,
             use_container_width=True
         )
 
@@ -1204,7 +1408,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-day_summary = create_summary_table(
+day_summary = summary_by_group(
     filtered,
     "Day"
 )
@@ -1239,22 +1443,34 @@ if not day_summary.empty:
 
 
 # ============================================================
-# RAW DATA PREVIEW
+# EMAIL FINDINGS
 # ============================================================
 
-with st.expander(
-    "View Raw Data"
-):
+st.markdown(
+    '<div class="section-header">📧 IMPORTANT FINDINGS — EMAIL READY</div>',
+    unsafe_allow_html=True
+)
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        height=400
-    )
+st.caption(
+    "This section automatically generates an email summary based on the current Month / Week / Day / Issue Type filters."
+)
+
+email_text = make_email_summary(
+    filtered,
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+)
+
+st.code(
+    email_text,
+    language=None
+)
 
 
 # ============================================================
-# DOWNLOAD FILTERED DATA
+# EXPORT
 # ============================================================
 
 st.markdown(
@@ -1267,8 +1483,19 @@ csv_data = filtered.to_csv(
 ).encode("utf-8")
 
 st.download_button(
-    label="Download Filtered Ticket Data",
+    "Download Filtered Ticket Data",
     data=csv_data,
     file_name="filtered_ticket_data.csv",
     mime="text/csv"
 )
+
+
+# ============================================================
+# RAW DATA PREVIEW
+# ============================================================
+
+with st.expander("View Raw Data"):
+
+    st.dataframe(
+        df,
+        use_container_width=True,
