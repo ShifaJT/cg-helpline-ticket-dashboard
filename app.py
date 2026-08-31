@@ -1405,6 +1405,166 @@ def filter_description(
     return " | ".join(parts)
 
 
+
+def html_escape(value):
+    return html.escape(str(value), quote=True)
+
+
+def html_table(headers, rows):
+    header_html = "".join(f"<th>{html_escape(h)}</th>" for h in headers)
+    body_html = ""
+    for row in rows:
+        body_html += "<tr>" + "".join(
+            f"<td>{html_escape(v)}</td>" for v in row
+        ) + "</tr>"
+    return (
+        '<table class="email-table">'
+        f"<thead><tr>{header_html}</tr></thead>"
+        f"<tbody>{body_html}</tbody>"
+        "</table>"
+    )
+
+
+def make_email_html(data, month, week, day, issue):
+    s = get_stats(data)
+    scope = (
+        "CG Helpline current queue | "
+        + filter_description(month, week, day, issue)
+    )
+
+    l1_summary = summary_by_group(data, "Issue L1")
+    l2_summary = summary_by_group(data, "Issue L2")
+
+    l1_rows = []
+    for _, row in l1_summary.head(5).iterrows():
+        count = int(row["Raised"])
+        share = count / s["raised"] * 100 if s["raised"] else 0
+        l1_rows.append([row["Issue L1"], f"{count:,}", f"{share:.1f}%"])
+    if not l1_rows:
+        l1_rows = [["No L1 issue data available.", "0", "0.0%"]]
+
+    l2_rows = []
+    for _, row in l2_summary.head(5).iterrows():
+        count = int(row["Raised"])
+        share = count / s["raised"] * 100 if s["raised"] else 0
+        l2_rows.append([row["Issue L2"], f"{count:,}", f"{share:.1f}%"])
+    if not l2_rows:
+        l2_rows = [["No L2 issue data available.", "0", "0.0%"]]
+
+    group_col = "Group Analysis" if "Group Analysis" in data.columns else "Group"
+    transfer_rows = []
+    if group_col in data.columns:
+        transferred = data[
+            data[group_col].fillna("").astype(str).str.strip().ne("")
+            & ~data[group_col].fillna("").astype(str).str.strip().str.casefold().eq("cg helpline")
+        ]
+        if not transferred.empty:
+            counts = (
+                transferred.groupby(group_col)["Ticket ID"]
+                .nunique()
+                .sort_values(ascending=False)
+            )
+            transfer_rows = [
+                [grp, f"{int(count):,}"]
+                for grp, count in counts.head(10).items()
+            ]
+    if not transfer_rows:
+        transfer_rows = [["No tickets currently in other groups.", "0"]]
+
+    findings_rows = [
+        ["Tickets raised", f"{s['raised']:,}", "Total ticket inflow"],
+        ["Tickets closed", f"{s['closed']:,}", "Tickets closed"],
+        ["Tickets open", f"{s['open']:,}", "Current backlog"],
+        ["Closed within 24h", f"{s['within']:,}", "Met 24-hour SLA"],
+        ["Closed >24h", f"{s['after']:,}", "Exceeded 24-hour SLA"],
+        ["24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"],
+        ["Average resolution", format_hms(s["avg"]), "Average closure time"],
+        ["Median resolution", format_hms(s["median"]), "Median closure time"],
+        ["Average first response", format_hms(s["first_response_avg"]), "Average first response"],
+        ["90% Percentile resolution", format_hms(s["p90"]), "PERCENTILE.INC style"],
+        ["95% Percentile resolution", format_hms(s["p95"]), "PERCENTILE.INC style"],
+        ["99% Percentile resolution", format_hms(s["p99"]), "PERCENTILE.INC style"],
+        ["Open >72h", f"{s['old_open']:,}", "Ageing backlog"],
+    ]
+
+    if s["closed"]:
+        sla_text = (
+            f"Out of {s['closed']:,} closed tickets, {s['within']:,} "
+            f"were closed within 24 hours and {s['after']:,} exceeded "
+            f"the 24-hour SLA. The 24-hour closure rate was "
+            f"{s['rate'] * 100:.1f}%."
+        )
+    else:
+        sla_text = "There are no valid closed tickets for SLA analysis."
+
+    resolution_text = (
+        f"Average resolution was {format_hms(s['avg'])}; median was "
+        f"{format_hms(s['median'])}; 90% percentile was {format_hms(s['p90'])}; "
+        f"95% percentile was {format_hms(s['p95'])}; and 99% percentile was "
+        f"{format_hms(s['p99'])}."
+    )
+
+    backlog_text = f"There are {s['open']:,} tickets currently open."
+    if s["old_open"]:
+        backlog_text += (
+            f" {s['old_open']:,} are older than 72 hours and should be prioritised."
+        )
+    else:
+        backlog_text += " There are no open tickets older than 72 hours."
+
+    if data["Created time"].notna().any():
+        date_text = (
+            f"The report covers ticket inflow from "
+            f"{data['Created time'].min().strftime('%d %b %Y')} to "
+            f"{data['Created time'].max().strftime('%d %b %Y')}."
+        )
+    else:
+        date_text = "The reporting period could not be determined."
+
+    return f"""
+<div class="copyable-email" style="background:#fff;color:#1f2937;padding:24px;
+border:1px solid #d9e1ea;border-radius:8px;font-family:Arial,Helvetica,sans-serif;
+line-height:1.5;max-width:1100px;">
+<h2 style="color:#173a5e;margin:0 0 4px 0;">CG Helpline Ticket Performance Update</h2>
+<p style="color:#64748b;margin-top:0;">{html_escape(scope)}</p>
+
+<p>Hi Team,</p>
+<p>Please find below the CG Helpline ticket performance update for
+<b>{html_escape(scope)}</b>.</p>
+
+<h3 style="color:#173a5e;">KEY FINDINGS</h3>
+{html_table(["Metric","Value","Comments"], findings_rows)}
+
+<h3 style="color:#173a5e;">TOP CONTRIBUTING ISSUE TYPE — L1</h3>
+{html_table(["Issue Type — L1","Tickets","% of Tickets"], l1_rows)}
+
+<h3 style="color:#173a5e;">TOP CONTRIBUTING ISSUE TYPE — L2</h3>
+{html_table(["Issue Type — L2","Tickets","% of Tickets"], l2_rows)}
+
+<h3 style="color:#173a5e;">TRANSFERRED / OTHER-GROUP TICKETS</h3>
+<p>Based only on the raw <b>Group</b> field. No movement time is inferred.</p>
+{html_table(["Current Group","Tickets"], transfer_rows)}
+
+<h3 style="color:#173a5e;">MANAGEMENT OBSERVATIONS</h3>
+<p><b>1. Closure and SLA performance</b><br>{html_escape(sla_text)}</p>
+<p><b>2. First response time</b><br>
+Average first response time was <b>{html_escape(format_hms(s["first_response_avg"]))}</b>,
+based on {s["first_response_count"]:,} tickets with a valid first-response value.</p>
+<p><b>3. Resolution-time distribution</b><br>{html_escape(resolution_text)}</p>
+<p><b>4. Backlog</b><br>{html_escape(backlog_text)}</p>
+<p><b>5. Reporting period</b><br>{html_escape(date_text)}</p>
+
+<h3 style="color:#173a5e;">RECOMMENDED FOCUS</h3>
+<ul>
+<li>Prioritise ageing open tickets and cases approaching the 72-hour threshold.</li>
+<li>Review tickets exceeding the 24-hour SLA and identify recurring issue-type drivers.</li>
+<li>Review the 90%, 95% and 99% percentile resolution times for long-tail cases.</li>
+<li>Focus on the highest-contributing L1 and L2 issues for process or routing improvements.</li>
+</ul>
+<p>Regards,<br>CG Helpline</p>
+</div>
+"""
+
 def make_email_summary(
     data,
     month,
@@ -4037,6 +4197,38 @@ if not day_summary.empty:
     )
 
 
+st.markdown(
+    """
+    <style>
+    .copyable-email .email-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 10px 0 20px 0;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 13px;
+    }
+    .copyable-email .email-table th {
+        background: #173a5e;
+        color: white;
+        border: 1px solid #cbd5e1;
+        padding: 8px 10px;
+        text-align: left;
+    }
+    .copyable-email .email-table td {
+        border: 1px solid #cbd5e1;
+        padding: 8px 10px;
+        background: white;
+        color: #1f2937;
+        vertical-align: top;
+    }
+    .copyable-email .email-table tr:nth-child(even) td {
+        background: #f8fafc;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # ============================================================
 # EMAIL FINDINGS
 # ============================================================
@@ -4058,9 +4250,23 @@ email_text = make_email_summary(
     selected_issue
 )
 
-st.code(
-    email_text,
-    language=None
+email_html = make_email_html(
+    filtered,
+    selected_month,
+    selected_week,
+    selected_day,
+    selected_issue
+)
+
+st.info(
+    "Copy the formatted email below with Ctrl+A / Ctrl+C and paste it into "
+    "Outlook, Gmail or Excel. Tables remain tables and paste into separate "
+    "Excel cells."
+)
+
+st.markdown(
+    email_html,
+    unsafe_allow_html=True
 )
 
 
