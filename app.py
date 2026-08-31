@@ -994,7 +994,7 @@ def summary_by_group(data, group_column):
             "≤24h": s["within"],
             ">24h": s["after"],
             "24h %": round(
-                s["rate"] * 100,
+                s["rate"],
                 1
             ),
         })
@@ -1507,7 +1507,7 @@ def make_email_html(data, other_group_data, month, week, day, issue):
                     int(
                         (
                             grp_df["SLA"]
-                            .eq("Closed <=24h")
+                            .eq("Within 24h")
                         ).sum()
                     )
                     if "SLA" in grp_df.columns
@@ -1518,7 +1518,7 @@ def make_email_html(data, other_group_data, month, week, day, issue):
                     int(
                         (
                             grp_df["SLA"]
-                            .eq("Closed >24h")
+                            .eq("After 24h")
                         ).sum()
                     )
                     if "SLA" in grp_df.columns
@@ -3509,7 +3509,7 @@ with r4[0]:
 
 with r4[1]:
     show_kpi(
-        "OVERALL TICKETS",
+        "FIRST RESPONSE TICKETS",
         f"{s['first_response_count']:,}",
         "green"
     )
