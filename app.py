@@ -3509,7 +3509,7 @@ with r4[0]:
 
 with r4[1]:
     show_kpi(
-        "FIRST RESPONSE TICKETS",
+        "OVERALL TICKETS",
         f"{s['first_response_count']:,}",
         "green"
     )
