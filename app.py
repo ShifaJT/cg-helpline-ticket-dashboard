@@ -739,9 +739,10 @@ def fcr_stats(data):
     return {
         "fcr": fcr_count,
         "eligible": eligible_count,
+        # FCR % = FCR tickets / ALL tickets raised
         "rate": (
-            fcr_count / eligible_count * 100
-            if eligible_count else 0.0
+            fcr_count / len(x) * 100
+            if len(x) else 0.0
         ),
         "same_day": same_day_count,
         "coverage": (
@@ -894,9 +895,10 @@ def get_stats(data):
         "open": len(opened),
         "within": len(within),
         "after": len(after),
+        # 24H Closure % = Closed <=24h / ALL tickets raised
         "rate": (
-            len(within) / len(closed)
-            if len(closed)
+            len(within) / len(data) * 100
+            if len(data)
             else 0.0
         ),
         "avg": avg_hours,
@@ -1551,7 +1553,7 @@ def make_email_html(data, other_group_data, month, week, day, issue):
         ["Tickets open", f"{s['open']:,}", "Current backlog"],
         ["Closed within 24h", f"{s['within']:,}", "Met 24-hour SLA"],
         ["Closed >24h", f"{s['after']:,}", "Exceeded 24-hour SLA"],
-        ["24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"],
+        ["24h closure rate", f"{s['rate']:.1f}%", "Closed ≤24h / Total tickets raised"],
         ["Average resolution", format_hms(s["avg"]), "Average closure time"],
         ["Median resolution", format_hms(s["median"]), "Median closure time"],
         ["Average first response", format_hms(s["first_response_avg"]), "Average first response"],
@@ -2341,7 +2343,7 @@ def build_excel_report(
         ),
         (
             "24h Closure %",
-            f"{s['rate'] * 100:.1f}%",
+            f"{s['rate']:.1f}%",
             "Closed ≤24h divided by total closed tickets"
         ),
     ]
@@ -3489,8 +3491,9 @@ with r3[2]:
     )
 
 st.caption(
-    "90%/95%/99% percentile show the resolution-time point within which "
-    "90%/95%/99% of valid closed tickets were resolved."
+    "24H Closure % = Closed ≤24h ÷ Total tickets raised. "
+    "All percentage KPIs use total tickets raised in the selected population "
+    "as the denominator. 90%/95%/99% percentile values are time measures."
 )
 
 
@@ -3557,6 +3560,7 @@ with f4:
 
 st.caption(
     "FCR operational proxy = Closed ticket + populated Call Type + Inbound Count ≤ 1. "
+    "FCR % = FCR tickets ÷ Total tickets raised. "
     "The raw export does not contain a dedicated FCR flag/history."
 )
 
@@ -3626,7 +3630,8 @@ st.caption(
     "The main dashboard contains only Group = CG Helpline. "
     "Every ticket whose current Group is different from CG Helpline is "
     "shown here as being in an Other Queue. "
-    "≤24h / >24h is measured from ticket creation."
+    "≤24h / >24h is based on the raw resolution-time field; "
+    "24H Closure % = Closed ≤24h ÷ Total tickets in other queues."
 )
 
 other = filtered_other_groups.copy()
@@ -3640,11 +3645,10 @@ other_after = other_stats["after"]
 other_closed = other_stats["closed"]
 other_open = other_stats["open"]
 
-other_eligible = other_within + other_after
-
+# Other/L3 24H Closure % = Closed <=24h / ALL tickets in other queues
 other_rate = (
-    other_within / other_eligible * 100
-    if other_eligible else 0
+    other_within / other_total * 100
+    if other_total else 0
 )
 
 o1, o2, o3, o4 = st.columns(4)
