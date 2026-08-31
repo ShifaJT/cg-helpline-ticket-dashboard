@@ -1426,7 +1426,7 @@ def html_table(headers, rows):
     )
 
 
-def make_email_html(data, month, week, day, issue):
+def make_email_html(data, other_group_data, month, week, day, issue):
     s = get_stats(data)
     scope = (
         "CG Helpline current queue | "
@@ -1452,25 +1452,98 @@ def make_email_html(data, month, week, day, issue):
     if not l2_rows:
         l2_rows = [["No L2 issue data available.", "0", "0.0%"]]
 
-    group_col = "Group Analysis" if "Group Analysis" in data.columns else "Group"
+    # IMPORTANT:
+    # data = CG Helpline only.
+    # other_group_data = tickets whose CURRENT raw Group is not CG Helpline.
+    # This keeps the dashboard KPIs pure CG Helpline while allowing the
+    # email to show the separate transferred/current-other-queue view.
+    group_col = (
+        "Group Analysis"
+        if "Group Analysis" in other_group_data.columns
+        else "Group"
+    )
+
     transfer_rows = []
-    if group_col in data.columns:
-        transferred = data[
-            data[group_col].fillna("").astype(str).str.strip().ne("")
-            & ~data[group_col].fillna("").astype(str).str.strip().str.casefold().eq("cg helpline")
-        ]
+
+    if group_col in other_group_data.columns:
+
+        transferred = other_group_data.copy()
+
         if not transferred.empty:
-            counts = (
-                transferred.groupby(group_col)["Ticket ID"]
-                .nunique()
-                .sort_values(ascending=False)
+
+            grouped = transferred.groupby(group_col)
+
+            for grp, grp_df in grouped:
+
+                ticket_count = (
+                    grp_df["Ticket ID"].nunique()
+                    if "Ticket ID" in grp_df.columns
+                    else len(grp_df)
+                )
+
+                closed_count = (
+                    int(
+                        grp_df["Status Clean"]
+                        .eq("CLOSED")
+                        .sum()
+                    )
+                    if "Status Clean" in grp_df.columns
+                    else 0
+                )
+
+                open_count = (
+                    int(
+                        grp_df["Status Clean"]
+                        .eq("OPEN")
+                        .sum()
+                    )
+                    if "Status Clean" in grp_df.columns
+                    else max(int(ticket_count) - closed_count, 0)
+                )
+
+                within_24 = (
+                    int(
+                        (
+                            grp_df["SLA"]
+                            .eq("Closed <=24h")
+                        ).sum()
+                    )
+                    if "SLA" in grp_df.columns
+                    else 0
+                )
+
+                over_24 = (
+                    int(
+                        (
+                            grp_df["SLA"]
+                            .eq("Closed >24h")
+                        ).sum()
+                    )
+                    if "SLA" in grp_df.columns
+                    else 0
+                )
+
+                transfer_rows.append([
+                    grp,
+                    f"{int(ticket_count):,}",
+                    f"{closed_count:,}",
+                    f"{open_count:,}",
+                    f"{within_24:,}",
+                    f"{over_24:,}"
+                ])
+
+            # Highest-volume destination queue first.
+            transfer_rows.sort(
+                key=lambda row: int(
+                    str(row[1]).replace(",", "")
+                ),
+                reverse=True
             )
-            transfer_rows = [
-                [grp, f"{int(count):,}"]
-                for grp, count in counts.head(10).items()
-            ]
+
     if not transfer_rows:
-        transfer_rows = [["No tickets currently in other groups.", "0"]]
+        transfer_rows = [
+            ["No tickets currently in other groups.", "0", "0", "0", "0", "0"]
+        ]
 
     findings_rows = [
         ["Tickets raised", f"{s['raised']:,}", "Total ticket inflow"],
@@ -1543,8 +1616,22 @@ line-height:1.5;max-width:1100px;">
 {html_table(["Issue Type — L2","Tickets","% of Tickets"], l2_rows)}
 
 <h3 style="color:#173a5e;">TRANSFERRED / OTHER-GROUP TICKETS</h3>
-<p>Based only on the raw <b>Group</b> field. No movement time is inferred.</p>
-{html_table(["Current Group","Tickets"], transfer_rows)}
+<p>
+Based only on the raw <b>Group</b> field. No movement time is inferred.
+The table shows the current destination queue and its closed/open and
+24-hour resolution status.
+</p>
+{html_table(
+    [
+        "Current Group",
+        "Tickets",
+        "Closed",
+        "Open",
+        "Closed ≤24h",
+        "Closed >24h"
+    ],
+    transfer_rows
+)}
 
 <h3 style="color:#173a5e;">MANAGEMENT OBSERVATIONS</h3>
 <p><b>1. Closure and SLA performance</b><br>{html_escape(sla_text)}</p>
@@ -4240,7 +4327,10 @@ st.markdown(
 )
 
 st.caption(
-    "This section automatically generates an email summary based on the current Month / Week / Day / Issue Type filters."
+    "This section automatically generates an email summary based on the current "
+    "Month / Week / Day / Issue Type filters. The main findings use only CG "
+    "Helpline tickets; transferred/current-other-queue data is shown separately "
+    "from the raw Group field."
 )
 
 email_text = make_email_summary(
@@ -4253,6 +4343,7 @@ email_text = make_email_summary(
 
 email_html = make_email_html(
     filtered,
+    filtered_other_groups,
     selected_month,
     selected_week,
     selected_day,
