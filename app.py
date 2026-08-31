@@ -1760,7 +1760,7 @@ def make_email_summary(
         ("Tickets open", f"{s['open']:,}", "Current backlog"),
         ("Closed within 24h", f"{s['within']:,}", "Met 24-hour SLA"),
         ("Closed >24h", f"{s['after']:,}", "Exceeded 24-hour SLA"),
-        ("24h closure rate", f"{s['rate'] * 100:.1f}%", "SLA adherence"),
+        ("24h closure rate", f"{s['rate']:.1f}%", "SLA adherence"),
         ("Average resolution", format_hms(s["avg"]), "Average closure time"),
         ("Median resolution", format_hms(s["median"]), "Middle resolution time"),
         ("Average first response", format_hms(s["first_response_avg"]), "Average raw first-response time"),
@@ -2136,7 +2136,7 @@ def build_excel_report(
         ("Open", s["open"], red),
         ("Closed ≤24h", s["within"], green),
         ("Closed >24h", s["after"], orange),
-        ("24h Closure %", f"{s['rate'] * 100:.1f}%", green),
+        ("24h Closure %", f"{s['rate']:.1f}%", green),
         ("Avg Closure Hrs", format_hms(s["avg"]), blue),
         ("Open >72h", s["old_open"], red),
         ("90% Percentile Resolution", format_hms(s["p90"]), blue),
@@ -3445,7 +3445,7 @@ with r2[0]:
 with r2[1]:
     show_kpi(
         "24H CLOSURE %",
-        f"{s['rate'] * 100:.1f}%",
+        f"{s['rate']:.1f}%",
         "green"
     )
 
