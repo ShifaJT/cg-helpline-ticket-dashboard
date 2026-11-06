@@ -1,6 +1,3 @@
-import gspread
-import gspread_dataframe as gd
-from google.oauth2.service_account import Credentials
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,9 +10,6 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # NEW IMPORTS FOR GOOGLE SHEETS
 import plotly.express as px
-import gspread
-import gspread_dataframe as gd
-from google.oauth2.service_account import Credentials
 
 # ============================================================
 # CG HELPLINE — TICKET INFLOW & RESOLUTION DASHBOARD
@@ -4461,58 +4455,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ⚠️ SELF-CORRECTING CREDENTIALS (DO NOT ALTER)
-_raw_key = "MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vrIgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJIB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BKSJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdBgTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hCkGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKvj67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBCiUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9xsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd961hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/RtzgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTgEVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4sE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+Ihd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAczEtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1We5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAXFhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ+USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCjwtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqkOLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6B8ztqkUb4IRcgVqNcc4+rQ=="
-_raw_key = _raw_key.replace(" ", "").replace("\n", "").replace("\r", "")
-
-GOOGLE_CREDENTIALS = {
-    "type": "service_account",
-    "project_id": "kpi-dashboard-465407",
-    "private_key_id": "9b93a6ce95813f3d11b45734fdc6462a24dfae5a",
-    "private_key": f"-----BEGIN PRIVATE KEY-----\n{_raw_key}\n-----END PRIVATE KEY-----\n",
-    "client_email": "streamlit-bot-cg-data@kpi-dashboard-465407.iam.gserviceaccount.com",
-    "client_id": "108132769443169516653",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-bot-cg-data%40kpi-dashboard-465407.iam.gserviceaccount.com"
-}
-
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/edit?gid=0#gid=0"
+# ⚠️ CONVERTED TO DIRECT CSV EXPORT LINKS
+URL_POTENTIAL_CLOSED = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=0"
+URL_REASON_CLOSED = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=949989371"
+URL_ACTIVE = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=2144746849"
 
 @st.cache_data(ttl=600)
-def load_google_sheet_data(sheet_url, creds_dict):
+def load_csv_data(url):
     try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet_id = sheet_url.split("/d/")[1].split("/")[0]
-        spreadsheet = client.open_by_key(sheet_id)
-        
-        # Load specific sheets based on your screenshot tabs
-        try: df_potential = gd.get_as_dataframe(spreadsheet.worksheet("Potential Business closed"))
-        except: df_potential = pd.DataFrame()
-            
-        try: df_reason = gd.get_as_dataframe(spreadsheet.worksheet("Reason for Business closed"))
-        except: df_reason = pd.DataFrame()
-            
-        try: df_active = gd.get_as_dataframe(spreadsheet.worksheet("Potential Business Active"))
-        except: df_active = pd.DataFrame()
-            
-        return df_potential, df_reason, df_active
+        return pd.read_csv(url)
     except Exception as e:
-        st.error(f"Could not load Google Sheet. Please check your credentials and make sure you shared the sheet with the bot email. Error: {e}")
-        return None, None, None
+        return pd.DataFrame()
 
 if st.button("Load Google Sheet Data for Business Closed / Beat Analysis"):
     with st.spinner("Fetching data from Google Sheets..."):
-        df_potential, df_reason, df_active = load_google_sheet_data(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
+        df_potential = load_csv_data(URL_POTENTIAL_CLOSED)
+        df_reason = load_csv_data(URL_REASON_CLOSED)
+        df_active = load_csv_data(URL_ACTIVE)
         
-        if df_potential is not None and not df_potential.empty:
+        if not df_potential.empty:
             st.session_state.biz_potential = df_potential
             st.session_state.biz_reason = df_reason
             st.session_state.biz_active = df_active
             st.success("Google Sheet data loaded successfully!")
+        else:
+            st.error("Failed to load data. Please ensure the Google Sheet is shared as 'Anyone with the link'.")
 
 if "biz_potential" in st.session_state:
     df_pot = st.session_state.biz_potential.copy()
@@ -4625,9 +4592,4 @@ if "biz_potential" in st.session_state:
 # ============================================================
 
 with st.expander("View Raw Data"):
-
-    st.dataframe(
-        df,
-        use_container_width=True,
-        height=400
-    )
+    st.dataframe(df, use_container_width=True, height=400)
