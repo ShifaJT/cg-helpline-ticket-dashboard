@@ -4461,20 +4461,46 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ⚠️ PASTE YOUR SERVICE ACCOUNT CREDENTIALS HERE
-# Open your downloaded JSON file and copy the values into these strings.
+# ⚠️ EXACT CREDENTIALS FROM YOUR JSON FILE
 GOOGLE_CREDENTIALS = {
     "type": "service_account",
     "project_id": "kpi-dashboard-465407",
     "private_key_id": "9b93a6ce95813f3d11b45734fdc6462a24dfae5a",
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vr\nIgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJ\nIB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BK\nSJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdB\ngTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hC\nkGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc\n5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA\n5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKv\nj67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBC\niUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN\n0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9\nxsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S\n8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd96\n1hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/Rt\nzgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTg\nEVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4\nsE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+I\nhd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAcz\nEtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1W\ne5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAX\nFhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ\n+USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR\n32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCj\nwtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqk\nOLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6\nB8ztqkUb4IRcgVqNcc4+rQ==\n-----END PRIVATE KEY-----\n",
+    "private_key": """-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vr
+IgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJ
+IB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BK
+SJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdB
+gTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hC
+kGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc
+5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA
+5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKv
+j67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBC
+iUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN
+0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9
+xsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S
+8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd96
+1hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/Rt
+zgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTg
+EVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4
+sE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+I
+hd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAcz
+EtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1W
+e5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAX
+FhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ
++USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR
+32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCj
+wtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqk
+OLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6
+B8ztqkUb4IRcgVqNcc4+rQ==
+-----END PRIVATE KEY-----
+""",
     "client_email": "streamlit-bot-cg-data@kpi-dashboard-465407.iam.gserviceaccount.com",
     "client_id": "108132769443169516653",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
     "token_uri": "https://oauth2.googleapis.com/token",
     "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-bot-cg-data%40kpi-dashboard-465407.iam.gserviceaccount.com",
-  "universe_domain": "googleapis.com"
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-bot-cg-data%40kpi-dashboard-465407.iam.gserviceaccount.com"
 }
 
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/edit?gid=0#gid=0"
@@ -4483,6 +4509,7 @@ GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtR
 def load_google_sheet_data(sheet_url, creds_dict):
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        # Note: The private key is already formatted correctly using triple quotes
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         sheet_id = sheet_url.split("/d/")[1].split("/")[0]
@@ -4618,6 +4645,7 @@ if "biz_potential" in st.session_state:
             st.warning("The 'Reason for Business closed' tab does not have a 'Reason' column.")
     else:
         st.info("No data loaded from the 'Reason for Business closed' tab.")
+        
 # ============================================================
 # RAW DATA PREVIEW
 # ============================================================
