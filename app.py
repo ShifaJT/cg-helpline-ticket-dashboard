@@ -7,8 +7,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
-
-# NEW IMPORTS FOR GOOGLE SHEETS
 import plotly.express as px
 
 # ============================================================
@@ -1457,11 +1455,6 @@ def make_email_html(data, other_group_data, month, week, day, issue):
     if not l2_rows:
         l2_rows = [["No L2 issue data available.", "0", "0.0%"]]
 
-    # IMPORTANT:
-    # data = CG Helpline only.
-    # other_group_data = tickets whose CURRENT raw Group is not CG Helpline.
-    # This keeps the dashboard KPIs pure CG Helpline while allowing the
-    # email to show the separate transferred/current-other-queue view.
     group_col = (
         "Group Analysis"
         if "Group Analysis" in other_group_data.columns
@@ -1537,7 +1530,6 @@ def make_email_html(data, other_group_data, month, week, day, issue):
                     f"{over_24:,}"
                 ])
 
-            # Highest-volume destination queue first.
             transfer_rows.sort(
                 key=lambda row: int(
                     str(row[1]).replace(",", "")
@@ -1796,7 +1788,6 @@ def make_email_summary(
         else "No issue-type contribution could be identified."
     )
 
-    # Top contributing L1/L2 issues.
     l1_summary = summary_by_group(data, "Issue L1")
     l2_summary = summary_by_group(data, "Issue L2")
 
@@ -1812,7 +1803,6 @@ def make_email_summary(
         for _, row in l2_summary.head(5).iterrows()
     ] or ["- No L2 issue data available."]
 
-    # Current tickets outside CG Helpline, based only on raw Group.
     group_col = "Group Analysis" if "Group Analysis" in data.columns else "Group"
     if group_col in data.columns:
         transferred = data[
@@ -4447,149 +4437,13 @@ st.caption(
 )
 
 # ============================================================
-# NEW SECTION: BUSINESS CLOSED & BEAT REMOVAL ANALYSIS
-# ============================================================
-
-st.markdown(
-    '<div class="section-header">📊 BUSINESS CLOSED & BEAT REMOVAL ANALYSIS</div>',
-    unsafe_allow_html=True
-)
-
-# ⚠️ CONVERTED TO DIRECT CSV EXPORT LINKS
-URL_POTENTIAL_CLOSED = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=0"
-URL_REASON_CLOSED = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=949989371"
-URL_ACTIVE = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/export?format=csv&gid=2144746849"
-
-@st.cache_data(ttl=600)
-def load_csv_data(url):
-    try:
-        return pd.read_csv(url)
-    except Exception as e:
-        return pd.DataFrame()
-
-if st.button("Load Google Sheet Data for Business Closed / Beat Analysis"):
-    with st.spinner("Fetching data from Google Sheets..."):
-        df_potential = load_csv_data(URL_POTENTIAL_CLOSED)
-        df_reason = load_csv_data(URL_REASON_CLOSED)
-        df_active = load_csv_data(URL_ACTIVE)
-        
-        if not df_potential.empty:
-            st.session_state.biz_potential = df_potential
-            st.session_state.biz_reason = df_reason
-            st.session_state.biz_active = df_active
-            st.success("Google Sheet data loaded successfully!")
-        else:
-            st.error("Failed to load data. Please ensure the Google Sheet is shared as 'Anyone with the link'.")
-
-if "biz_potential" in st.session_state:
-    df_pot = st.session_state.biz_potential.copy()
-    df_reason = st.session_state.biz_reason.copy()
-    df_active = st.session_state.biz_active.copy()
-    
-    # Clean column names
-    df_pot.columns = [str(c).strip() for c in df_pot.columns]
-    
-    # Ensure Date is datetime
-    if "Date" in df_pot.columns:
-        df_pot["Date"] = pd.to_datetime(df_pot["Date"], errors="coerce", dayfirst=True)
-        df_pot["Month"] = df_pot["Date"].dt.strftime("%b %Y")
-        df_pot["Week"] = df_pot["Date"].dt.to_period("W").astype(str)
-    
-    st.markdown("### 1. Weekly Business Closed Summary")
-    st.caption("This uses the 'Potential Business closed' tab from the Google Sheet. It explains the 60-day CTA/GMV impact (we are not blocking it).")
-    
-    if not df_pot.empty and "Date" in df_pot.columns:
-        # Aggregate by Week
-        weekly_summary = df_pot.groupby("Week").agg(
-            Tickets=("BZID", "count"),
-            Unique_BZID=("BZID", "nunique"),
-            Call_Connected=("Cluster", lambda x: (x != "").sum()), # Adjust if you have a Call column
-            Potential_Closed=("BZID", "nunique"), # If this tab is all potential closed
-            Total_CTA=("Last 60 days CTA", "sum"),
-            Total_GMV=("Last 60 days GMV", "sum")
-        ).reset_index()
-        
-        st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
-        
-        # Add explanation
-        st.info(
-            "**CTA & GMV Explanation:** The CTA and GMV figures above represent the business value of the BZIDs "
-            "that have been classified as 'Potential Business Closed'. By tracking this, we can see the impact "
-            "of not blocking these BZIDs for 60 days. If these BZIDs were blocked, this CTA/GMV would be removed from the ecosystem."
-        )
-        
-        # Cluster-wise breakdown
-        st.markdown("### 2. Cluster-wise Data")
-        if "Cluster" in df_pot.columns:
-            cluster_summary = df_pot.groupby("Cluster").agg(
-                Tickets=("BZID", "count"),
-                Unique_BZID=("BZID", "nunique"),
-                Total_CTA=("Last 60 days CTA", "sum"),
-                Total_GMV=("Last 60 days GMV", "sum")
-            ).reset_index().sort_values("Tickets", ascending=False)
-            st.dataframe(cluster_summary, use_container_width=True, hide_index=True)
-        
-        # 60-day BZID Blocked vs Potential
-        st.markdown("### 3. 60-Day BZID Impact")
-        if not df_active.empty and "BZID" in df_active.columns:
-            total_active_bzid = df_active["BZID"].nunique()
-            total_potential = df_pot["BZID"].nunique()
-            total_blocked = max(total_active_bzid - total_potential, 0) # Prevent negative numbers
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Active BZIDs", f"{total_active_bzid:,}")
-            col2.metric("Potential Business Closed", f"{total_potential:,}")
-            col3.metric("BZIDs Removed from Beat (New CTA)", f"{total_blocked:,}")
-            
-            st.caption("This shows how many BZIDs were removed from the beat and their new CTA status.")
-
-    # ============================================================
-    # 4. Issue Type Breakdown by Cluster
-    # ============================================================
-    st.markdown("### 4. Issue Type Breakdown by Cluster")
-    st.caption("This uses the main ticket data loaded at the top of the dashboard.")
-    
-    if "Cluster" in df.columns and "Issue L1" in df.columns:
-        issue_cluster = df.groupby(["Cluster", "Issue L1"]).agg(
-            Tickets=("Ticket ID", "nunique")
-        ).reset_index().sort_values(["Cluster", "Tickets"], ascending=[True, False])
-        
-        st.dataframe(issue_cluster, use_container_width=True, hide_index=True)
-    else:
-        st.warning("The main ticket data does not have 'Cluster' or 'Issue L1' columns.")
-    
-    # ============================================================
-    # 5. Ticket Open vs Closed
-    # ============================================================
-    st.markdown("### 5. Ticket Open vs Closed")
-    if "Status Clean" in df.columns:
-        status_counts = df["Status Clean"].value_counts().reset_index()
-        status_counts.columns = ["Status", "Count"]
-        st.dataframe(status_counts, use_container_width=True, hide_index=True)
-    
-    # ============================================================
-    # 6. Reason for Business Closed
-    # ============================================================
-    st.markdown("### 6. Reason for Business Closed")
-    st.caption("This uses the 'Reason for Business closed' tab from the Google Sheet.")
-    
-    if not df_reason.empty:
-        df_reason.columns = [str(c).strip() for c in df_reason.columns]
-        if "Reason" in df_reason.columns:
-            reason_counts = df_reason["Reason"].value_counts().reset_index()
-            reason_counts.columns = ["Reason", "Count"]
-            st.dataframe(reason_counts, use_container_width=True, hide_index=True)
-            
-            fig_reason = px.pie(reason_counts, names="Reason", values="Count", title="Reason for Business Closed")
-            st.plotly_chart(fig_reason, use_container_width=True)
-        else:
-            st.warning("The 'Reason for Business closed' tab does not have a 'Reason' column.")
-    else:
-        st.info("No data loaded from the 'Reason for Business closed' tab.")
-        
-# ============================================================
 # RAW DATA PREVIEW
 # ============================================================
 
 with st.expander("View Raw Data"):
-    st.dataframe(df, use_container_width=True, height=400)
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        height=400
+    )
