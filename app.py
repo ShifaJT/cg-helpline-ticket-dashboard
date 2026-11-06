@@ -1,3 +1,6 @@
+import gspread
+import gspread_dataframe as gd
+from google.oauth2.service_account import Credentials
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -4458,13 +4461,29 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# ⚠️ PASTE YOUR SERVICE ACCOUNT CREDENTIALS HERE
+# Open your downloaded JSON file and copy the values into these strings.
+GOOGLE_CREDENTIALS = {
+    "type": "service_account",
+    "project_id": "kpi-dashboard-465407",
+    "private_key_id": "9b93a6ce95813f3d11b45734fdc6462a24dfae5a",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vr\nIgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJ\nIB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BK\nSJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdB\ngTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hC\nkGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc\n5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA\n5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKv\nj67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBC\niUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN\n0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9\nxsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S\n8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd96\n1hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/Rt\nzgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTg\nEVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4\nsE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+I\nhd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAcz\nEtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1W\ne5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAX\nFhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ\n+USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR\n32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCj\nwtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqk\nOLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6\nB8ztqkUb4IRcgVqNcc4+rQ==\n-----END PRIVATE KEY-----\n",
+    "client_email": "streamlit-bot-cg-data@kpi-dashboard-465407.iam.gserviceaccount.com",
+    "client_id": "108132769443169516653",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-bot-cg-data%40kpi-dashboard-465407.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
+
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/edit?gid=0#gid=0"
 
 @st.cache_data(ttl=600)
-def load_google_sheet_data(sheet_url):
+def load_google_sheet_data(sheet_url, creds_dict):
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         sheet_id = sheet_url.split("/d/")[1].split("/")[0]
         spreadsheet = client.open_by_key(sheet_id)
@@ -4481,12 +4500,12 @@ def load_google_sheet_data(sheet_url):
             
         return df_potential, df_reason, df_active
     except Exception as e:
-        st.error(f"Could not load Google Sheet. Please ensure you have set up your Google Cloud Service Account credentials in .streamlit/secrets.toml. Error: {e}")
+        st.error(f"Could not load Google Sheet. Please check your credentials and make sure you shared the sheet with the bot email. Error: {e}")
         return None, None, None
 
 if st.button("Load Google Sheet Data for Business Closed / Beat Analysis"):
     with st.spinner("Fetching data from Google Sheets..."):
-        df_potential, df_reason, df_active = load_google_sheet_data(GOOGLE_SHEET_URL)
+        df_potential, df_reason, df_active = load_google_sheet_data(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
         
         if df_potential is not None and not df_potential.empty:
             st.session_state.biz_potential = df_potential
@@ -4514,12 +4533,12 @@ if "biz_potential" in st.session_state:
     if not df_pot.empty and "Date" in df_pot.columns:
         # Aggregate by Week
         weekly_summary = df_pot.groupby("Week").agg(
-            总Tickets=("BZID", "count"),
-            唯一BZID=("BZID", "nunique"),
+            Tickets=("BZID", "count"),
+            Unique_BZID=("BZID", "nunique"),
             Call_Connected=("Cluster", lambda x: (x != "").sum()), # Adjust if you have a Call column
             Potential_Closed=("BZID", "nunique"), # If this tab is all potential closed
-            总CTA=("Last 60 days CTA", "sum"),
-            总GMV=("Last 60 days GMV", "sum")
+            Total_CTA=("Last 60 days CTA", "sum"),
+            Total_GMV=("Last 60 days GMV", "sum")
         ).reset_index()
         
         st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
@@ -4533,24 +4552,25 @@ if "biz_potential" in st.session_state:
         
         # Cluster-wise breakdown
         st.markdown("### 2. Cluster-wise Data")
-        cluster_summary = df_pot.groupby("Cluster").agg(
-            Tickets=("BZID", "count"),
-            Unique_BZID=("BZID", "nunique"),
-            Total_CTA=("Last 60 days CTA", "sum"),
-            Total_GMV=("Last 60 days GMV", "sum")
-        ).reset_index().sort_values("Tickets", ascending=False)
-        st.dataframe(cluster_summary, use_container_width=True, hide_index=True)
+        if "Cluster" in df_pot.columns:
+            cluster_summary = df_pot.groupby("Cluster").agg(
+                Tickets=("BZID", "count"),
+                Unique_BZID=("BZID", "nunique"),
+                Total_CTA=("Last 60 days CTA", "sum"),
+                Total_GMV=("Last 60 days GMV", "sum")
+            ).reset_index().sort_values("Tickets", ascending=False)
+            st.dataframe(cluster_summary, use_container_width=True, hide_index=True)
         
         # 60-day BZID Blocked vs Potential
         st.markdown("### 3. 60-Day BZID Impact")
-        if not df_active.empty and "Last 60 days CTA" in df_active.columns:
+        if not df_active.empty and "BZID" in df_active.columns:
             total_active_bzid = df_active["BZID"].nunique()
             total_potential = df_pot["BZID"].nunique()
-            total_blocked = total_active_bzid - total_potential # Assumption
+            total_blocked = max(total_active_bzid - total_potential, 0) # Prevent negative numbers
             
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Active BZIDs", f"{total_active_bzid:,}")
-            col2.metric("Potential Business Closed (to be blocked)", f"{total_potential:,}")
+            col2.metric("Potential Business Closed", f"{total_potential:,}")
             col3.metric("BZIDs Removed from Beat (New CTA)", f"{total_blocked:,}")
             
             st.caption("This shows how many BZIDs were removed from the beat and their new CTA status.")
@@ -4559,9 +4579,8 @@ if "biz_potential" in st.session_state:
     # 4. Issue Type Breakdown by Cluster
     # ============================================================
     st.markdown("### 4. Issue Type Breakdown by Cluster")
-    st.caption("This uses the main ticket data loaded at the top of the dashboard. Ensure your ticket data has 'Cluster' and 'Issue Type - L1' columns.")
+    st.caption("This uses the main ticket data loaded at the top of the dashboard.")
     
-    # Check if main df has Cluster column
     if "Cluster" in df.columns and "Issue L1" in df.columns:
         issue_cluster = df.groupby(["Cluster", "Issue L1"]).agg(
             Tickets=("Ticket ID", "nunique")
@@ -4569,7 +4588,7 @@ if "biz_potential" in st.session_state:
         
         st.dataframe(issue_cluster, use_container_width=True, hide_index=True)
     else:
-        st.warning("The main ticket data does not have 'Cluster' or 'Issue L1' columns. Please ensure your raw upload includes these fields.")
+        st.warning("The main ticket data does not have 'Cluster' or 'Issue L1' columns.")
     
     # ============================================================
     # 5. Ticket Open vs Closed
@@ -4587,23 +4606,18 @@ if "biz_potential" in st.session_state:
     st.caption("This uses the 'Reason for Business closed' tab from the Google Sheet.")
     
     if not df_reason.empty:
-        # Clean column names
         df_reason.columns = [str(c).strip() for c in df_reason.columns]
-        
-        # Group by Reason
         if "Reason" in df_reason.columns:
             reason_counts = df_reason["Reason"].value_counts().reset_index()
             reason_counts.columns = ["Reason", "Count"]
             st.dataframe(reason_counts, use_container_width=True, hide_index=True)
             
-            # Plotly Pie Chart
             fig_reason = px.pie(reason_counts, names="Reason", values="Count", title="Reason for Business Closed")
             st.plotly_chart(fig_reason, use_container_width=True)
         else:
             st.warning("The 'Reason for Business closed' tab does not have a 'Reason' column.")
     else:
         st.info("No data loaded from the 'Reason for Business closed' tab.")
-
 # ============================================================
 # RAW DATA PREVIEW
 # ============================================================
