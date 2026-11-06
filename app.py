@@ -4509,7 +4509,7 @@ GOOGLE_CREDENTIALS = {
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/edit?gid=0#gid=0"
 
 @st.cache_data(ttl=600)
-def load_google_sheet_data(sheet_url, creds_dict):
+def load_google_sheet_data_fixed(sheet_url, creds_dict):  # <--- Changed name
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
         # Note: The private key is already formatted correctly using triple quotes
@@ -4535,7 +4535,7 @@ def load_google_sheet_data(sheet_url, creds_dict):
 
 if st.button("Load Google Sheet Data for Business Closed / Beat Analysis"):
     with st.spinner("Fetching data from Google Sheets..."):
-        df_potential, df_reason, df_active = load_google_sheet_data(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
+        df_potential, df_reason, df_active = load_google_sheet_data_fixed(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
         
         if df_potential is not None and not df_potential.empty:
             st.session_state.biz_potential = df_potential
