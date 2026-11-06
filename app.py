@@ -4461,43 +4461,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ⚠️ GUARANTEED FORMATTING - DO NOT ALTER THE LIST
-_private_key_lines = [
-    "-----BEGIN PRIVATE KEY-----",
-    "MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vr",
-    "IgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJ",
-    "IB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BK",
-    "SJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdB",
-    "gTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hC",
-    "kGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc",
-    "5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA",
-    "5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKv",
-    "j67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBC",
-    "iUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN",
-    "0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9",
-    "xsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S",
-    "8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd96",
-    "1hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/Rt",
-    "zgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTg",
-    "EVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4",
-    "sE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+I",
-    "hd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAcz",
-    "EtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1W",
-    "e5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAX",
-    "FhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ",
-    "+USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR",
-    "32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCj",
-    "wtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqk",
-    "OLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6",
-    "B8ztqkUb4IRcgVqNcc4+rQ==",
-    "-----END PRIVATE KEY-----"
-]
+# ⚠️ SELF-CORRECTING CREDENTIALS (DO NOT ALTER)
+_raw_key = "MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCpAP7ycEcaK7vrIgFbqxXJ3azx1RKXOCkCN9c1FcRl8VZ3dn3XUYKLPX3BbCALcrBEWA20XTgmuWRJIB27wVsmE2QHgdYrIEiC9xacyqs0KgoavD6dPoriTD2UK0CQ/GnGjSLKTd8TF1BKSJUa4GJeUiT4goZ55dIVSLXUhswCAxEfc6lfynVVoe4nQDwoZuFvfac0dt9M7GdBgTPAH9FRFnScF6zxArYwRJRjjCpCo37YD4gvO0NMCKUiZzUlkoemeGTQtZmJL1hCkGPqTc/riLXo6IUCJXwBzTr27Gsg8h3Ywj6HNQxC4/cpZzcN8usMlTWak7O8dQVc5xj5HantAgMBAAECggEAFMzck/YhqiTr0fqzdBbQbbHs0S7KRPZShcVdpVjyfSGA5N8eidusV3rP+XhXUVFiRGcZ+LLocEus/hsHzc30a/FDBHGEbHZitku26sE+5QKvj67PfgbujP+ZLJ1OKwoF8rv4JjIDXJQn+5yHTXGEadtuVW+rIWGZw6jZSDj27uBCiUcbDWm6tB6Oj8YjvS2/0E9jQNKwJwfCqkqBwJBbTVIH9q47ySmZObdPGqgSvmCN0yHXPahyIDqChYAVbz12b6o8cn8Sgf9xoAqb3cTaJvIejJwBsdhmvIxG1NnOS6s9xsgcVt22nSbSSZ8rS1RlcoEMo9mL4PhPo3Jz2OY1eQKBgQDVkK453CAVemZJ155S8b59rmXK62FvNlfjCWWkO17g5lJQM2iP589PZ7SRH7UJnw57NbmeMwFtkBGdrd961hmyXd9FMNBl0JM9tQlzlgI7i67Q1QLfrJuAZz+gZr+XAbZ1F8vGoCQ6DwY68/RtzgNK4VgDUcqeFTjaOKcnZPUS9wKBgQDKlaNWnXm/dN6AHnrC9Xvce/4qm8uVfBTgEVmTW0zYXqnSgHs9DBOmqZGzWXLKXEHKUzD1fYmBKZGBtdP/I+YWDp93tNuV0lG4sE4A4nWaeXyqBYiktD4cM0746qwP7vE4FSLNgEu+XtuIBGX/kdSPYfCbkCCABe+Ihd+b6AJNOwKBgHHfMwam2HSbTu8QiNqxC2D4HE6WMt2ZnELyP7/R6EUCieE5iAczEtbD9QNsZJs8s/v+KXqwt5IzvzDUBNT6U7lHVEUQQg4HqHq+jMuUsJwPXqb67Q1We5N7efGM15sszpygk4bU3HwYhrnoWewybI8AmG0sr1ya9DVm/7mBmysBAoGAQVAXFhC1NMWwCmxJNdvBMCeFnSUXcL1NWaQeVgTEdKmoZKZplRf0qfHXeJQpDxbJWzqQ+USc9Vh6gfAmRgbD4m6aeRSFCvuAv2OP8ncQZVovl/0qvbcioyLjnhrCmGx3tpYR32EyilC4xFRusgPJHOT9lpnT8JJ5VHGc0v3s6AsCgYACirayNioQYyektshBjRCjwtnb5ZyKwsLhm0q3wQWbCP4FxhVxVcvlcLOm9dv7fQ3Z6d5FOzkfJx4JAN2hHFqkOLp/OYgVfaqPkALYavJL5ol6m6jcuBvcGo2fpIqeKmfUYzoX2/tVkrAaNIwT1Ez6B8ztqkUb4IRcgVqNcc4+rQ=="
+_raw_key = _raw_key.replace(" ", "").replace("\n", "").replace("\r", "")
 
 GOOGLE_CREDENTIALS = {
     "type": "service_account",
     "project_id": "kpi-dashboard-465407",
     "private_key_id": "9b93a6ce95813f3d11b45734fdc6462a24dfae5a",
-    "private_key": "\n".join(_private_key_lines),
+    "private_key": f"-----BEGIN PRIVATE KEY-----\n{_raw_key}\n-----END PRIVATE KEY-----\n",
     "client_email": "streamlit-bot-cg-data@kpi-dashboard-465407.iam.gserviceaccount.com",
     "client_id": "108132769443169516653",
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -4509,10 +4481,9 @@ GOOGLE_CREDENTIALS = {
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UntvqwuKqPNlNJe_7GtRYSRleNo7m9cyxczWRWXkSuc/edit?gid=0#gid=0"
 
 @st.cache_data(ttl=600)
-def load_google_sheet_data_fixed(sheet_url, creds_dict):  # <--- Changed name
+def load_google_sheet_data(sheet_url, creds_dict):
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-        # Note: The private key is already formatted correctly using triple quotes
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         sheet_id = sheet_url.split("/d/")[1].split("/")[0]
@@ -4535,7 +4506,7 @@ def load_google_sheet_data_fixed(sheet_url, creds_dict):  # <--- Changed name
 
 if st.button("Load Google Sheet Data for Business Closed / Beat Analysis"):
     with st.spinner("Fetching data from Google Sheets..."):
-        df_potential, df_reason, df_active = load_google_sheet_data_fixed(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
+        df_potential, df_reason, df_active = load_google_sheet_data(GOOGLE_SHEET_URL, GOOGLE_CREDENTIALS)
         
         if df_potential is not None and not df_potential.empty:
             st.session_state.biz_potential = df_potential
