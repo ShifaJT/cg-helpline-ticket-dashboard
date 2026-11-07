@@ -645,6 +645,32 @@ def ensure_analysis_columns(data):
         "Issue L2"
     ] = "Unspecified"
 
+    # Recreate Resolution Type Clean from the raw field if necessary.
+    if "Resolution Type Clean" not in data.columns:
+        if "Resolution Type" in data.columns:
+            data["Resolution Type Clean"] = (
+                data["Resolution Type"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
+        else:
+            data["Resolution Type Clean"] = "Unspecified"
+    data.loc[
+        data["Resolution Type Clean"].eq(""),
+        "Resolution Type Clean"
+    ] = "Unspecified"
+
+    # Recreate HubID Clean from the raw field if necessary.
+    if "HubID Clean" not in data.columns:
+        if "HubID" in data.columns:
+            data["HubID Clean"] = (
+                data["HubID"]
+                .apply(_clean_hub_value)
+            )
+        else:
+            data["HubID Clean"] = "Unspecified"
+
     data = add_fcr_fields(data)
 
     return data
@@ -1885,6 +1911,149 @@ CG Helpline
 
 
 # ============================================================
+# NEW: RESOLUTION TYPE HELPERS
+# ============================================================
+
+def resolution_type_summary(data):
+    cols = [
+        "Resolution Type",
+        "Tickets",
+        "% of Tickets",
+        "Closed",
+        "Open",
+        "Closed ≤24h",
+        "Closed >24h",
+        "24h %",
+    ]
+    if data.empty or "Resolution Type Clean" not in data.columns:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    for value, group in data.groupby("Resolution Type Clean", dropna=False, sort=False):
+        s = get_stats(group)
+        total = group["Ticket ID"].nunique()
+        rows.append({
+            "Resolution Type": value,
+            "Tickets": total,
+            "Closed": s["closed"],
+            "Open": s["open"],
+            "Closed ≤24h": s["within"],
+            "Closed >24h": s["after"],
+            "24h %": round(s["within"] / total * 100, 1) if total else 0.0,
+        })
+
+    result = pd.DataFrame(rows)
+    total = result["Tickets"].sum()
+    result["% of Tickets"] = (result["Tickets"] / total * 100).round(1) if total else 0.0
+    return result.sort_values("Tickets", ascending=False).reset_index(drop=True)
+
+
+def resolution_type_period(data, period_column):
+    if data.empty or "Resolution Type Clean" not in data.columns or period_column not in data.columns:
+        return pd.DataFrame()
+
+    pivot = (
+        data.groupby([period_column, "Resolution Type Clean"])["Ticket ID"]
+        .nunique()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+    pivot.columns.name = None
+    return pivot
+
+
+# ============================================================
+# NEW: HUB HELPERS
+# ============================================================
+
+def _clean_hub_value(v):
+    if pd.isna(v):
+        return "Unspecified"
+    s = str(v).strip()
+    if s == "" or s.lower() == "nan":
+        return "Unspecified"
+    try:
+        f = float(s)
+        if f.is_integer():
+            return str(int(f))
+    except Exception:
+        pass
+    return s
+
+
+def hub_summary(data):
+    cols = [
+        "HubID",
+        "Tickets",
+        "% of Tickets",
+        "Closed",
+        "Open",
+        "Closed ≤24h",
+        "Closed >24h",
+        "24h %",
+        "Avg Resolution",
+        "Median Resolution",
+        "P90 Resolution",
+        "Open >72h",
+    ]
+    if data.empty or "HubID Clean" not in data.columns:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    for hub, g in data.groupby("HubID Clean", dropna=False, sort=False):
+        s = get_stats(g)
+        rows.append({
+            "HubID": hub,
+            "Tickets": g["Ticket ID"].nunique(),
+            "Closed": s["closed"],
+            "Open": s["open"],
+            "Closed ≤24h": s["within"],
+            "Closed >24h": s["after"],
+            "24h %": round(s["rate"], 1),
+            "Avg Resolution": format_hms(s["avg"]),
+            "Median Resolution": format_hms(s["median"]),
+            "P90 Resolution": format_hms(s["p90"]),
+            "Open >72h": s["old_open"],
+        })
+
+    result = pd.DataFrame(rows)
+    total = result["Tickets"].sum()
+    result["% of Tickets"] = (result["Tickets"] / total * 100).round(1) if total else 0.0
+    return result.sort_values("Tickets", ascending=False).reset_index(drop=True)
+
+
+def hub_period(data, period_column):
+    if data.empty or "HubID Clean" not in data.columns or period_column not in data.columns:
+        return pd.DataFrame()
+
+    pivot = (
+        data.groupby([period_column, "HubID Clean"])["Ticket ID"]
+        .nunique()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+    pivot.columns.name = None
+    return pivot
+
+
+def hub_issue_breakdown(data):
+    if data.empty or "HubID Clean" not in data.columns:
+        return pd.DataFrame()
+
+    x = ensure_analysis_columns(data)
+
+    pivot = (
+        x.groupby(["HubID Clean", "Issue L1"])["Ticket ID"]
+        .nunique()
+        .unstack(fill_value=0)
+        .reset_index()
+        .rename(columns={"HubID Clean": "HubID"})
+    )
+    pivot.columns.name = None
+    return pivot
+
+
+# ============================================================
 # EXCEL EXPORT
 # ============================================================
 
@@ -2391,6 +2560,8 @@ def build_excel_report(
         "Closure Hours",
         "SLA",
         "Open Age Hours",
+        "Resolution Type Clean",
+        "HubID Clean",
     ]
 
     raw_export = raw_export.drop(
@@ -2587,6 +2758,53 @@ def build_excel_report(
         issue_ws,
         max_width=32
     )
+
+    # --------------------------------------------------------
+    # NEW: RESOLUTION TYPE ANALYSIS
+    # --------------------------------------------------------
+
+    rt_ws = wb.create_sheet("Resolution Type Analysis")
+    style_title(rt_ws, "RESOLUTION TYPE ANALYSIS", filter_text, end_col=8)
+    rt_end_row, rt_end_col = add_dataframe(
+        rt_ws, resolution_type_summary(filtered_data), 4
+    )
+    format_table(rt_ws, 4, rt_end_row, 1, rt_end_col, "ResolutionTypeTable")
+    auto_width(rt_ws, max_width=32)
+
+    rt_month_xl = resolution_type_period(filtered_data, "Month")
+    if not rt_month_xl.empty:
+        rt_month_xl["_sort"] = pd.to_datetime("01 " + rt_month_xl["Month"], errors="coerce")
+        rt_month_xl = rt_month_xl.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+        start = rt_end_row + 3
+        rt_ws.cell(start, 1, "MONTH-WISE RESOLUTION TYPE").font = Font(bold=True, color=white)
+        rt_ws.cell(start, 1).fill = PatternFill("solid", fgColor=navy)
+        add_dataframe(rt_ws, rt_month_xl, start + 1)
+
+    # --------------------------------------------------------
+    # NEW: HUB ANALYSIS
+    # --------------------------------------------------------
+
+    hub_ws = wb.create_sheet("Hub Analysis")
+    style_title(hub_ws, "HUB-WISE ANALYSIS", filter_text, end_col=12)
+    hub_end_row, hub_end_col = add_dataframe(hub_ws, hub_summary(filtered_data), 4)
+    format_table(hub_ws, 4, hub_end_row, 1, hub_end_col, "HubAnalysisTable")
+    auto_width(hub_ws, max_width=32)
+
+    hub_month_xl = hub_period(filtered_data, "Month")
+    if not hub_month_xl.empty:
+        hub_month_xl["_sort"] = pd.to_datetime("01 " + hub_month_xl["Month"], errors="coerce")
+        hub_month_xl = hub_month_xl.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+        start = hub_end_row + 3
+        hub_ws.cell(start, 1, "HUB × MONTH").font = Font(bold=True, color=white)
+        hub_ws.cell(start, 1).fill = PatternFill("solid", fgColor=navy)
+        add_dataframe(hub_ws, hub_month_xl, start + 1)
+
+    hub_issue_xl = hub_issue_breakdown(filtered_data)
+    if not hub_issue_xl.empty:
+        start = hub_end_row + (len(hub_month_xl) + 7 if not hub_month_xl.empty else 3)
+        hub_ws.cell(start, 1, "HUB × ISSUE TYPE L1").font = Font(bold=True, color=white)
+        hub_ws.cell(start, 1).fill = PatternFill("solid", fgColor=navy)
+        add_dataframe(hub_ws, hub_issue_xl, start + 1)
 
     # --------------------------------------------------------
     # GROUP ANALYSIS
@@ -4031,6 +4249,133 @@ if not issue_detail.empty:
                 fig_l2_low,
                 use_container_width=True
             )
+
+
+# ============================================================
+# NEW: RESOLUTION TYPE BREAKUP
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">RESOLUTION TYPE BREAKUP</div>',
+    unsafe_allow_html=True
+)
+
+st.caption(
+    "Based on the raw 'Resolution Type' field. "
+    "Open tickets with no resolution type appear as 'Unspecified'. "
+    "24h % = Closed ≤24h ÷ Total tickets of that resolution type."
+)
+
+rt_summary = resolution_type_summary(filtered)
+
+if not rt_summary.empty:
+    c1, c2 = st.columns([1.1, 0.9])
+    with c1:
+        st.dataframe(
+            rt_summary,
+            use_container_width=True,
+            hide_index=True
+        )
+    with c2:
+        fig_rt = px.bar(
+            rt_summary.sort_values("Tickets"),
+            x="Tickets",
+            y="Resolution Type",
+            orientation="h",
+            text="Tickets",
+            title="Tickets by Resolution Type"
+        )
+        fig_rt.update_layout(
+            height=max(320, 40 * len(rt_summary)),
+            margin=dict(l=10, r=10, t=50, b=10)
+        )
+        st.plotly_chart(fig_rt, use_container_width=True)
+
+    st.markdown("### Resolution Type — Month-wise")
+    rt_month = resolution_type_period(filtered, "Month")
+    if not rt_month.empty:
+        rt_month["_sort"] = pd.to_datetime("01 " + rt_month["Month"], errors="coerce")
+        rt_month = rt_month.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+        st.dataframe(rt_month, use_container_width=True, hide_index=True)
+
+    st.markdown("### Resolution Type — Week-wise")
+    rt_week = resolution_type_period(filtered, "Week")
+    if not rt_week.empty and "Week Start" in filtered.columns:
+        wk_order = (
+            filtered[["Week", "Week Start"]]
+            .drop_duplicates()
+            .sort_values("Week Start")[["Week"]]
+        )
+        rt_week = wk_order.merge(rt_week, on="Week", how="left")
+        st.dataframe(rt_week, use_container_width=True, hide_index=True)
+else:
+    st.info("No Resolution Type values available in the selected data.")
+
+
+# ============================================================
+# NEW: HUB-WISE BREAKUP
+# ============================================================
+
+st.markdown(
+    '<div class="section-header">HUB-WISE BREAKUP</div>',
+    unsafe_allow_html=True
+)
+
+st.caption(
+    "Based on the raw 'HubID' field from the ticket dump. "
+    "Tickets with no HubID appear as 'Unspecified'. "
+    "24h % = Closed ≤24h ÷ Total tickets for that hub."
+)
+
+hub_df = hub_summary(filtered)
+
+if not hub_df.empty:
+    c1, c2 = st.columns([1.2, 0.8])
+    with c1:
+        st.dataframe(
+            hub_df,
+            use_container_width=True,
+            hide_index=True
+        )
+    with c2:
+        fig_hub = px.bar(
+            hub_df.sort_values("Tickets"),
+            x="Tickets",
+            y="HubID",
+            orientation="h",
+            text="Tickets",
+            title="Tickets by Hub"
+        )
+        fig_hub.update_layout(
+            height=max(320, 42 * len(hub_df)),
+            margin=dict(l=10, r=10, t=50, b=10)
+        )
+        st.plotly_chart(fig_hub, use_container_width=True)
+
+    st.markdown("### Hub — Month-wise Ticket Volume")
+    hub_month = hub_period(filtered, "Month")
+    if not hub_month.empty:
+        hub_month["_sort"] = pd.to_datetime("01 " + hub_month["Month"], errors="coerce")
+        hub_month = hub_month.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+        st.dataframe(hub_month, use_container_width=True, hide_index=True)
+
+    st.markdown("### Hub — Week-wise Ticket Volume")
+    hub_week = hub_period(filtered, "Week")
+    if not hub_week.empty and "Week Start" in filtered.columns:
+        wk_order = (
+            filtered[["Week", "Week Start"]]
+            .drop_duplicates()
+            .sort_values("Week Start")[["Week"]]
+        )
+        hub_week = wk_order.merge(hub_week, on="Week", how="left")
+        st.dataframe(hub_week, use_container_width=True, hide_index=True)
+
+    st.markdown("### Hub × Issue Type L1 (Ticket Volume)")
+    hub_issue = hub_issue_breakdown(filtered)
+    if not hub_issue.empty:
+        st.dataframe(hub_issue, use_container_width=True, hide_index=True)
+else:
+    st.info("No HubID values available in the selected data.")
 
 
 # ============================================================
